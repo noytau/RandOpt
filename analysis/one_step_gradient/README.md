@@ -1,4 +1,4 @@
-# One-Step Gradient vs Random Step
+# One Gradient Step vs Random Steps
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1eQuyHt0h-v5lwoyFhsxRco-U1FPdPOMz?usp=sharing)
 
