@@ -29,10 +29,10 @@ python3 randopt.py \
   --tp "$TP" \
   --train_samples 200 \
   --precision bfloat16 \
-  --population_size 5000 \
+  --population_size 100 \
   --top_k_ratios "0.04,0.01,0.05,0.1" \
   --sigma_values "0.0005,0.001,0.002" \
-  --max_tokens 1024 \
+  --max_tokens 256 \
   --global_seed 42 \
   --experiment_dir "randopt-experiment-local" \
   --cuda_devices "$CUDA_DEVICES" \
