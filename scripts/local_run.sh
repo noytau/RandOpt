@@ -4,12 +4,15 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CUDA_DEVICES="${CUDA_DEVICES:-0,1,2,3}"
-MODEL="Qwen/Qwen2.5-0.5B-Instruct"
-DATASET="countdown"
-TRAIN_DATA_PATH="data/countdown/countdown.json"
-TEST_DATA_PATH="data/countdown/countdown.json"
+MODEL="${MODEL:-Qwen/Qwen2.5-0.5B-Instruct}"
+DATASET="${DATASET:-countdown}"
+TRAIN_DATA_PATH="${TRAIN_DATA_PATH:-data/countdown/countdown.json}"
+TEST_DATA_PATH="${TEST_DATA_PATH:-data/countdown/countdown.json}"
 WANDB_PROJECT="${WANDB_PROJECT:-randopt}"
-GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.75}"
+GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.8}"
+POPULATION_SIZE="${POPULATION_SIZE:-5000}"
+MAX_TOKENS="${MAX_TOKENS:-1024}"
+EXPERIMENT_DIR="${EXPERIMENT_DIR:-randopt-experiment-local}"
 
 TP=1
 NUM_GPUS="$(awk -F',' '{print NF}' <<< "$CUDA_DEVICES")"
@@ -29,12 +32,12 @@ python3 randopt.py \
   --tp "$TP" \
   --train_samples 200 \
   --precision bfloat16 \
-  --population_size 100 \
+  --population_size "$POPULATION_SIZE" \
   --top_k_ratios "0.04,0.01,0.05,0.1" \
   --sigma_values "0.0005,0.001,0.002" \
-  --max_tokens 256 \
+  --max_tokens "$MAX_TOKENS" \
   --global_seed 42 \
-  --experiment_dir "randopt-experiment-local" \
+  --experiment_dir "$EXPERIMENT_DIR" \
   --cuda_devices "$CUDA_DEVICES" \
   --wandb_project "$WANDB_PROJECT" \
   --gpu_memory_utilization "$GPU_MEM_UTIL"
