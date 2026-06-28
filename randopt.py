@@ -64,6 +64,8 @@ def parse_args():
     parser.add_argument("--experiment_dir", type=str, default="es-experiment")
     parser.add_argument("--resume_dir", type=str, default=None,
                         help="Resume from a previous run directory (skips sampling, goes directly to ensemble eval)")
+    parser.add_argument("--gpu_memory_utilization", type=float, default=0.75,
+                        help="Fraction of GPU memory vLLM may use (default 0.75). Lower this if GPU memory is partially occupied.")
     parser.add_argument("--wandb_project", type=str, default=None,
                         help="W&B project name. If not set, wandb logging is disabled.")
     parser.add_argument("--wandb_run_name", type=str, default=None,
@@ -425,7 +427,7 @@ def main(args):
     sampling_params = SamplingParams(temperature=0.0, seed=args.global_seed, max_tokens=max_tokens)
     
     # Launch engines
-    engines, pgs = launch_engines(args.num_engines, base_model_path, precision=args.precision, tensor_parallel_size=args.tp)
+    engines, pgs = launch_engines(args.num_engines, base_model_path, precision=args.precision, tensor_parallel_size=args.tp, gpu_memory_utilization=args.gpu_memory_utilization)
     
     try:
         if not is_resume:

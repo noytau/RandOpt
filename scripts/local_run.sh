@@ -9,6 +9,7 @@ DATASET="countdown"
 TRAIN_DATA_PATH="data/countdown/countdown.json"
 TEST_DATA_PATH="data/countdown/countdown.json"
 WANDB_PROJECT="${WANDB_PROJECT:-randopt}"
+GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.75}"
 
 TP=1
 NUM_GPUS="$(awk -F',' '{print NF}' <<< "$CUDA_DEVICES")"
@@ -35,4 +36,5 @@ python3 randopt.py \
   --global_seed 42 \
   --experiment_dir "randopt-experiment-local" \
   --cuda_devices "$CUDA_DEVICES" \
-  --wandb_project "$WANDB_PROJECT"
+  --wandb_project "$WANDB_PROJECT" \
+  --gpu_memory_utilization "$GPU_MEM_UTIL"
