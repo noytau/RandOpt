@@ -216,7 +216,7 @@ class WorkerExtension:
         """Store a copy of current weights as base weights for ensemble."""
         self._base_weights = {}
         for name, p in self.model_runner.model.named_parameters():
-            self._base_weights[name] = p.data.clone()
+            self._base_weights[name] = p.data.clone().cpu()
         if torch.cuda.is_available():
             torch.cuda.synchronize()
         return True
