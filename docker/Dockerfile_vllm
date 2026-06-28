@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y \
     tmux \
     htop \
     zsh \
+    unzip \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
@@ -29,9 +30,13 @@ RUN wget -nv -O - https://raw.githubusercontent.com/zimfw/install/master/install
 RUN pip install --no-cache-dir git+https://github.com/apple/ml-flextok.git
 RUN pip install --no-cache-dir git+https://github.com/openai/CLIP.git
 
-COPY RandOpt/ /workspace/RandOpt
-RUN cd /workspace/RandOpt && \
-    grep -vE "vllm|torch|numpy|transformers" requirements.txt > req_cleaned.txt && \
-    pip install --no-cache-dir -r req_cleaned.txt
+RUN pip install --no-cache-dir \
+    datasets \
+    huggingface-hub \
+    "ray[default]>=2.0.0" \
+    pandas \
+    pyarrow \
+    tqdm \
+    wandb
 
-WORKDIR /users/your_username/
+WORKDIR /storage/noy/RandOpt

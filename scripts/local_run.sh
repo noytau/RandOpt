@@ -4,10 +4,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CUDA_DEVICES="${CUDA_DEVICES:-0,1,2,3}"
-MODEL="allenai/Olmo-3-7B-Instruct"
+MODEL="Qwen/Qwen2.5-0.5B-Instruct"
 DATASET="countdown"
 TRAIN_DATA_PATH="data/countdown/countdown.json"
 TEST_DATA_PATH="data/countdown/countdown.json"
+WANDB_PROJECT="${WANDB_PROJECT:-randopt}"
 
 TP=1
 NUM_GPUS="$(awk -F',' '{print NF}' <<< "$CUDA_DEVICES")"
@@ -33,4 +34,5 @@ python3 randopt.py \
   --max_tokens 1024 \
   --global_seed 42 \
   --experiment_dir "randopt-experiment-local" \
-  --cuda_devices "$CUDA_DEVICES"
+  --cuda_devices "$CUDA_DEVICES" \
+  --wandb_project "$WANDB_PROJECT"

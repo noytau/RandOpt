@@ -1,0 +1,26 @@
+name: Build & Push Docker image (linux/amd64)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: noyhassid
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: docker/
+          file: docker/Dockerfile_vllm
+          platforms: linux/amd64
+          push: true
+          tags: docker.io/noyhassid/randopt-vllm:latest

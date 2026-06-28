@@ -23,6 +23,12 @@ from vllm import SamplingParams
 from data_handlers import get_dataset_handler, list_datasets
 from core import launch_engines, cleanup_engines
 
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -58,7 +64,11 @@ def parse_args():
     parser.add_argument("--experiment_dir", type=str, default="es-experiment")
     parser.add_argument("--resume_dir", type=str, default=None,
                         help="Resume from a previous run directory (skips sampling, goes directly to ensemble eval)")
-    
+    parser.add_argument("--wandb_project", type=str, default=None,
+                        help="W&B project name. If not set, wandb logging is disabled.")
+    parser.add_argument("--wandb_run_name", type=str, default=None,
+                        help="W&B run name. Defaults to dataset_model_timestamp.")
+
     args = parser.parse_args()
     
     args.sigma_list = [float(s.strip()) for s in args.sigma_values.split(",")]
@@ -177,6 +187,9 @@ def run_sampling(args, engines, handler, train_prompts, train_datas, sampling_pa
         samples_evaluated += len(batch)
         batch_idx += 1
         print(f"  Batch {batch_idx} | {samples_evaluated}/{args.population_size} | {['%.3f' % r for r in rewards]}")
+        if WANDB_AVAILABLE and wandb.run:
+            wandb.log({"sampling/batch_mean_reward": float(np.mean(rewards)),
+                       "sampling/samples_evaluated": samples_evaluated}, step=samples_evaluated)
     
     print(f"\nSampling done.")
     
@@ -196,7 +209,11 @@ def run_sampling(args, engines, handler, train_prompts, train_datas, sampling_pa
     # Find best sigma
     best_sigma = max(args.sigma_list, key=lambda s: np.mean(sigma_rewards[s]) if sigma_rewards[s] else 0)
     print(f"\n★ Best sigma: {best_sigma}")
-    
+    if WANDB_AVAILABLE and wandb.run:
+        sigma_log = {f"sigma/{s}/mean_reward": float(np.mean(r)) for s, r in sigma_rewards.items() if r}
+        sigma_log["sampling/best_sigma"] = best_sigma
+        wandb.log(sigma_log)
+
     return perf, best_sigma
 
 
@@ -347,6 +364,10 @@ def main(args):
     print(f"Model: {args.model_name}")
     print(f"Population: {args.population_size} | Top-K: {args.top_k_list} | Engines: {args.num_engines} | TP: {args.tp}")
     
+    if WANDB_AVAILABLE and args.wandb_project:
+        run_name = args.wandb_run_name or f"{args.dataset}_{args.model_name.split('/')[-1]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        wandb.init(project=args.wandb_project, name=run_name, config=vars(args))
+
     # Ray setup
     if os.environ.get("RAY_ADDRESS"):
         ray.init(address="auto", ignore_reinit_error=True)
@@ -410,6 +431,8 @@ def main(args):
         if not is_resume:
             base_train_reward, base_test_accuracy = evaluate_base_model(
                 engines, handler, train_prompts, test_prompts, train_datas, test_datas, sampling_params)
+            if WANDB_AVAILABLE and wandb.run:
+                wandb.log({"base/train_reward": base_train_reward, "base/test_accuracy": base_test_accuracy})
             
             # Perturbation sampling
             perf, best_sigma = run_sampling(
@@ -437,7 +460,12 @@ def main(args):
         save_results(args, logging_dir, model_saves_dir, base_model_path, handler,
                     base_train_reward, base_test_accuracy, top_k_perturbs, top_k_rewards,
                     ensemble_results, perf, best_sigma)
-    
+        if WANDB_AVAILABLE and wandb.run:
+            ensemble_log = {f"ensemble/accuracy_k{k}": v["accuracy"] for k, v in ensemble_results.items()}
+            ensemble_log["ensemble/base_test_accuracy"] = base_test_accuracy * 100
+            wandb.log(ensemble_log)
+            wandb.finish()
+
     finally:
         cleanup_engines(engines, pgs)
 
