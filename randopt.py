@@ -65,7 +65,7 @@ def parse_args():
     parser.add_argument("--resume_dir", type=str, default=None,
                         help="Resume from a previous run directory (skips sampling, goes directly to ensemble eval)")
     parser.add_argument("--gpu_memory_utilization", type=float, default=0.75,
-                        help="Fraction of GPU memory vLLM may use (default 0.75). Lower this if GPU memory is partially occupied.")
+                        help="Fraction of GPU memory vLLM may use (default 0.75). Lower if GPU memory is partially occupied.")
     parser.add_argument("--wandb_project", type=str, default=None,
                         help="W&B project name. If not set, wandb logging is disabled.")
     parser.add_argument("--wandb_run_name", type=str, default=None,
@@ -85,6 +85,19 @@ def parse_args():
     torch.cuda.manual_seed_all(args.global_seed)
     
     return args
+
+
+def init_wandb(args):
+    if not WANDB_AVAILABLE or not args.wandb_project:
+        return
+    run_name = args.wandb_run_name or f"{os.path.basename(args.experiment_dir)}_{args.dataset}"
+    wandb.init(
+        project=args.wandb_project,
+        name=run_name,
+        config={k: v for k, v in vars(args).items()
+                if k not in ("sigma_list", "top_k_list")},
+        resume="allow",
+    )
 
 
 def load_data(handler, args):
@@ -145,7 +158,13 @@ def evaluate_base_model(engines, handler, train_prompts, test_prompts, train_dat
             correct += 1
     base_test_accuracy = correct / len(test_datas) if test_datas else 0.0
     print(f"Test accuracy: {base_test_accuracy*100:.2f}% ({correct}/{len(test_datas)})")
-    
+
+    if WANDB_AVAILABLE and wandb.run:
+        wandb.log({
+            "base/train_reward": base_train_reward,
+            "base/test_accuracy": base_test_accuracy,
+        })
+
     return base_train_reward, base_test_accuracy
 
 
@@ -190,8 +209,11 @@ def run_sampling(args, engines, handler, train_prompts, train_datas, sampling_pa
         batch_idx += 1
         print(f"  Batch {batch_idx} | {samples_evaluated}/{args.population_size} | {['%.3f' % r for r in rewards]}")
         if WANDB_AVAILABLE and wandb.run:
-            wandb.log({"sampling/batch_mean_reward": float(np.mean(rewards)),
-                       "sampling/samples_evaluated": samples_evaluated}, step=samples_evaluated)
+            wandb.log({
+                "sampling/samples_evaluated": samples_evaluated,
+                "sampling/batch_mean_reward": float(np.mean(rewards)),
+                "sampling/batch_max_reward": float(np.max(rewards)),
+            }, step=samples_evaluated)
     
     print(f"\nSampling done.")
     
@@ -203,18 +225,22 @@ def run_sampling(args, engines, handler, train_prompts, train_datas, sampling_pa
     for (seed, sigma), reward in perf.items():
         sigma_rewards[sigma].append(reward)
     
+    sigma_log = {}
     for sigma in args.sigma_list:
         rewards_list = sigma_rewards[sigma]
         if rewards_list:
-            print(f"  σ={sigma}: mean={np.mean(rewards_list):.4f}, n={len(rewards_list)}")
-    
+            mean_r = float(np.mean(rewards_list))
+            print(f"  σ={sigma}: mean={mean_r:.4f}, n={len(rewards_list)}")
+            sigma_log[f"sigma/{sigma}/mean_reward"] = mean_r
+
+    if WANDB_AVAILABLE and wandb.run and sigma_log:
+        wandb.log(sigma_log)
+
     # Find best sigma
     best_sigma = max(args.sigma_list, key=lambda s: np.mean(sigma_rewards[s]) if sigma_rewards[s] else 0)
     print(f"\n★ Best sigma: {best_sigma}")
     if WANDB_AVAILABLE and wandb.run:
-        sigma_log = {f"sigma/{s}/mean_reward": float(np.mean(r)) for s, r in sigma_rewards.items() if r}
-        sigma_log["sampling/best_sigma"] = best_sigma
-        wandb.log(sigma_log)
+        wandb.log({"sampling/best_sigma": best_sigma})
 
     return perf, best_sigma
 
@@ -299,6 +325,12 @@ def run_ensemble_evaluation(args, engines, handler, test_prompts, test_datas, to
         acc = correct / num_samples * 100
         ensemble_results[k_value] = {"accuracy": acc, "correct": correct}
         print(f"  K={k_value}: {acc:.2f}% ({correct}/{num_samples}) [+{acc - base_test*100:.2f}%]")
+
+        if WANDB_AVAILABLE and wandb.run:
+            wandb.log({
+                f"ensemble/k{k_value}/accuracy": acc,
+                f"ensemble/k{k_value}/gain_over_base": acc - base_test * 100,
+            })
     
     # Clean up all_answers after evaluation
     del all_answers
@@ -353,12 +385,18 @@ def save_results(args, logging_dir, model_saves_dir, base_model_path, handler,
     
     print(f"Results saved to {logging_dir}/")
 
+    if WANDB_AVAILABLE and wandb.run:
+        wandb.log({"results/logging_dir": logging_dir})
+        wandb.finish()
+
 
 def main(args):
     handler = get_dataset_handler(args.dataset)
     max_tokens = args.max_tokens or handler.default_max_tokens
-    
+
     is_resume = args.resume_dir is not None
+
+    init_wandb(args)
     
     print(f"{'='*60}")
     print(f"ES Ensemble - {handler.name.upper()} {'[RESUME]' if is_resume else ''}")
