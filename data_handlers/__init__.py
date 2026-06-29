@@ -1,5 +1,6 @@
 """Dataset handlers registry."""
 from .base import DatasetHandler
+from .cifar10 import CIFAR10Handler
 from .countdown import CountdownHandler
 from .gqa import GQAHandler
 from .gsm8k import GSM8KHandler
@@ -22,6 +23,7 @@ DATASET_HANDLERS = {
     "uspto50k": USPTO50KHandler,
     "rocstories": ROCStoriesHandler,
     "gqa": GQAHandler,
+    "cifar10": CIFAR10Handler,
 }
 
 # -----------------------------------------------------------------------------
