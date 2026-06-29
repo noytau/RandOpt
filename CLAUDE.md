@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 RandOpt implements **Neural Thickets** (paper: arxiv 2603.12228): instead of gradient-based fine-tuning, it randomly perturbs a pretrained LLM's weights using Gaussian noise, evaluates each perturbation on a small train set, selects the top-K perturbations by reward, and uses majority voting (ensemble) over these perturbed models to answer test queries. The key insight is that high-quality task-adapted models are densely packed around pretrained weights.
 
+**Vision extension (branch `feature/vision-randopt`):** The same algorithm applied to DINOv2 + CIFAR-10. See [`VISION.md`](VISION.md) for full details, CLI reference, and cluster run commands.
+
 ## Running Experiments
 
 **Local (no SLURM):**
