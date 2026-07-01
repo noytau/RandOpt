@@ -2,7 +2,7 @@
 from typing import Dict, List, Optional
 
 import torch
-from torchvision import datasets, transforms
+from torchvision import transforms
 
 from .base import DatasetHandler
 
@@ -12,6 +12,19 @@ CIFAR10_CLASSES = [
 ]
 
 _to_tensor = transforms.ToTensor()
+
+
+def _load_via_hf(split: str) -> list:
+    """Load CIFAR-10 via HuggingFace datasets (avoids slow Toronto download)."""
+    from datasets import load_dataset
+    ds = load_dataset("uoft-cs/cifar10", split="train" if split == "train" else "test",
+                      trust_remote_code=True)
+    return ds
+
+
+def _load_via_torchvision(path: str, split: str) -> object:
+    from torchvision import datasets as tvd
+    return tvd.CIFAR10(root=path, train=(split == "train"), download=True, transform=_to_tensor)
 
 
 class CIFAR10Handler(DatasetHandler):
@@ -29,20 +42,38 @@ class CIFAR10Handler(DatasetHandler):
         max_samples: Optional[int] = None,
         start_index: int = 0,
     ) -> List[Dict]:
-        """Load CIFAR-10; returns dicts with float32 (3,32,32) image tensors in [0,1]."""
-        dataset = datasets.CIFAR10(
-            root=path, train=(split == "train"), download=True, transform=_to_tensor
-        )
+        """Load CIFAR-10. Tries HuggingFace datasets first (faster CDN), falls back to torchvision."""
+        try:
+            hf_ds = _load_via_hf(split)
+            items = []
+            for idx in range(start_index, len(hf_ds)):
+                if max_samples is not None and len(items) >= max_samples:
+                    break
+                row = hf_ds[idx]
+                # HF CIFAR-10: row["img"] is a PIL image, row["label"] is int
+                img = _to_tensor(row["img"])
+                label = row["label"]
+                items.append({
+                    "image_tensor": img,
+                    "ground_truth": CIFAR10_CLASSES[label],
+                    "class_id": label,
+                    "messages": [],
+                })
+            return items
+        except Exception as e:
+            print(f"HF datasets load failed ({e}), falling back to torchvision...")
+
+        dataset = _load_via_torchvision(path, split)
         items = []
         for idx in range(start_index, len(dataset)):
             if max_samples is not None and len(items) >= max_samples:
                 break
             img, label = dataset[idx]
             items.append({
-                "image_tensor": img,              # float32 (3, 32, 32) in [0, 1]
+                "image_tensor": img,
                 "ground_truth": CIFAR10_CLASSES[label],
                 "class_id": label,
-                "messages": [],                   # not used for vision
+                "messages": [],
             })
         return items
 
