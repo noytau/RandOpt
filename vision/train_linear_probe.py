@@ -60,15 +60,15 @@ def main():
             imgs = torch.stack([_transform(b["img"]) for b in batch])
             lbls = torch.tensor([b["label"] for b in batch])
             return imgs, lbls
-        train_dl = DataLoader(hf_train, batch_size=args.batch_size, shuffle=True,  collate_fn=_hf_collate, num_workers=4)
-        val_dl   = DataLoader(hf_val,   batch_size=args.batch_size, shuffle=False, collate_fn=_hf_collate, num_workers=4)
+        train_dl = DataLoader(hf_train, batch_size=args.batch_size, shuffle=True,  collate_fn=_hf_collate, num_workers=0)
+        val_dl   = DataLoader(hf_val,   batch_size=args.batch_size, shuffle=False, collate_fn=_hf_collate, num_workers=0)
         print("Loaded CIFAR-10 from HuggingFace datasets cache")
     except Exception as e:
         print(f"HF load failed ({e}), falling back to torchvision...")
         train_ds = datasets.CIFAR10(args.data_dir, train=True,  download=True, transform=_transform)
         val_ds   = datasets.CIFAR10(args.data_dir, train=False, download=True, transform=_transform)
-        train_dl = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,  num_workers=4)
-        val_dl   = DataLoader(val_ds,   batch_size=args.batch_size, shuffle=False, num_workers=4)
+        train_dl = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,  num_workers=0)
+        val_dl   = DataLoader(val_ds,   batch_size=args.batch_size, shuffle=False, num_workers=0)
 
     optim = torch.optim.Adam(classifier.parameters(), lr=args.lr)
     criterion = nn.CrossEntropyLoss()
