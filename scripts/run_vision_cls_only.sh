@@ -4,7 +4,7 @@
 # Only the linear head (768→10, ~7.7K params) is perturbed.
 # Linear probe warm-init: data/cifar10/linear_probe_dinov2base.pt (98.22% acc)
 # Sigma sweep: 0.01, 0.1, 0.5, 1.0, 5.0  (much larger than backbone run)
-set -e
+set -eo pipefail
 pip install wandb transformers torchvision datasets --quiet
 
 export HF_HOME=/storage/noy/.cache/huggingface

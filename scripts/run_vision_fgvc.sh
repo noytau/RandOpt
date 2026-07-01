@@ -2,7 +2,7 @@
 # RandOpt vision — FGVC-Aircraft (100 variants), DINOv2-base full perturbation.
 # DINOv2-base linear probe baseline ~61% — large gap for RandOpt to exploit.
 # Sigma range wider than CIFAR-10: includes 0.00001 (sub-cliff exploration).
-set -e
+set -eo pipefail
 pip install wandb transformers torchvision datasets --quiet
 
 export HF_HOME=/storage/noy/.cache/huggingface

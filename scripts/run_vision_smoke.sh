@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run RandOpt vision smoke test on cluster
-set -e
+set -eo pipefail
 pip install wandb transformers torchvision --quiet
 
 export HF_HOME=/storage/noy/.cache/huggingface

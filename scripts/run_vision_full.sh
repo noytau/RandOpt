@@ -1,7 +1,7 @@
 #!/bin/bash
 # Full RandOpt vision experiment: DINOv2-base + CIFAR-10, N=500
 # Optionally trains a linear probe first for warm init.
-set -e
+set -eo pipefail
 pip install wandb transformers torchvision datasets --quiet
 
 export HF_HOME=/storage/noy/.cache/huggingface

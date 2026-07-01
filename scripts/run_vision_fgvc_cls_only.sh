@@ -3,7 +3,7 @@
 # Backbone frozen at pretrained DINOv2-base weights.
 # Only linear head (768→100, ~76.8K params) is perturbed.
 # Comparison: vs run_vision_fgvc.sh (full backbone) to isolate backbone contribution.
-set -e
+set -eo pipefail
 pip install wandb transformers torchvision datasets --quiet
 
 export HF_HOME=/storage/noy/.cache/huggingface

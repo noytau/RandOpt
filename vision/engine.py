@@ -133,6 +133,27 @@ class VisionEngine:
         if torch.cuda.is_available():
             torch.cuda.synchronize()
 
+    def get_patch_features(self, images: torch.Tensor) -> torch.Tensor:
+        """Extract patch token embeddings for semantic correspondence.
+
+        Args:
+            images: (N, 3, H, W) float32 in [0, 1]
+        Returns:
+            (N, num_patches, embed_dim) float32 — L2-normalized patch features.
+            num_patches = (224/14)^2 = 256 for DINOv2-base.
+        """
+        all_feats = []
+        for i in range(0, len(images), self.inference_batch_size):
+            batch = images[i : i + self.inference_batch_size].to(self.device)
+            batch = self._preprocess(batch)
+            with torch.no_grad():
+                out = self.backbone(pixel_values=batch, output_hidden_states=False)
+                # last_hidden_state: (B, 1+num_patches, D) — first token is CLS
+                patch_tokens = out.last_hidden_state[:, 1:, :]  # (B, P, D)
+                patch_tokens = F.normalize(patch_tokens, dim=-1)
+            all_feats.append(patch_tokens.cpu())
+        return torch.cat(all_feats, dim=0)
+
     def get_embed_dim(self) -> int:
         return self.backbone.config.hidden_size
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 # RandOpt vision — CUB-200-2011 (200 bird species), DINOv2-base full perturbation.
 # DINOv2-base linear probe baseline ~82% — good gap; DINOv2 has known bird part features.
-set -e
+set -eo pipefail
 pip install wandb transformers torchvision datasets --quiet
 
 export HF_HOME=/storage/noy/.cache/huggingface
