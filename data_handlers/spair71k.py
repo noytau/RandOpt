@@ -40,7 +40,7 @@ GRID = INPUT_SIZE // PATCH_SIZE  # 16
 def _ensure_downloaded(data_dir: str) -> Path:
     """Download and extract SPair-71k to data_dir if not already present."""
     root = Path(data_dir) / "SPair-71k"
-    if (root / "ImageData").exists():
+    if (root / "JPEGImages").exists():
         return root
     os.makedirs(data_dir, exist_ok=True)
     tgz = Path(data_dir) / "SPair-71k.tar.gz"
@@ -63,29 +63,31 @@ def _load_split(root: Path, split: str) -> List[Dict]:
         with open(json_path) as f:
             ann = json.load(f)
 
-        src_path = root / "ImageData" / ann["category"] / ann["src_imname"]
-        tgt_path = root / "ImageData" / ann["category"] / ann["trg_imname"]
+        category = ann["category"]
+        src_path = root / "JPEGImages" / category / ann["src_imname"]
+        tgt_path = root / "JPEGImages" / category / ann["trg_imname"]
 
         src_img = Image.open(src_path).convert("RGB")
         tgt_img = Image.open(tgt_path).convert("RGB")
-        src_w, src_h = src_img.size
-        tgt_w, tgt_h = tgt_img.size
+
+        # SPair-71k stores sizes as [h, w] in the JSON — use to avoid redundant image loads
+        src_h, src_w = ann["src_imsize"][0], ann["src_imsize"][1]
+        tgt_h, tgt_w = ann["trg_imsize"][0], ann["trg_imsize"][1]
 
         # Bounding box threshold in patch units (standard SPair PCK@0.1)
         tgt_bbox = ann["trg_bndbox"]   # [x1, y1, x2, y2]
         bbox_w = (tgt_bbox[2] - tgt_bbox[0]) / tgt_w
         bbox_h = (tgt_bbox[3] - tgt_bbox[1]) / tgt_h
-        # After resize to LOAD_SIZE → engine rescales to INPUT_SIZE (factor 2 smaller)
         bbox_thresh = 0.1 * max(bbox_w, bbox_h) * GRID  # in patch units
 
-        # Keypoints: [[x,y], ...], only use visible ones
-        kps_A = ann.get("kps_A", [])  # source keypoints
-        kps_B = ann.get("kps_B", [])  # target keypoints
-        valid = [i for i in range(min(len(kps_A), len(kps_B)))
-                 if kps_A[i] is not None and kps_B[i] is not None]
+        # SPair-71k keypoints: src_kps / trg_kps, list of [x,y] or null
+        kps_src = ann.get("src_kps", [])
+        kps_tgt = ann.get("trg_kps", [])
+        valid = [i for i in range(min(len(kps_src), len(kps_tgt)))
+                 if kps_src[i] is not None and kps_tgt[i] is not None]
 
-        kpts_src = [_xy_to_patch(kps_A[i][0], kps_A[i][1], src_w, src_h) for i in valid]
-        kpts_tgt = [_xy_to_patch(kps_B[i][0], kps_B[i][1], tgt_w, tgt_h) for i in valid]
+        kpts_src = [_xy_to_patch(kps_src[i][0], kps_src[i][1], src_w, src_h) for i in valid]
+        kpts_tgt = [_xy_to_patch(kps_tgt[i][0], kps_tgt[i][1], tgt_w, tgt_h) for i in valid]
 
         if not kpts_src:
             continue
