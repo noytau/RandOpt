@@ -26,6 +26,7 @@ class VisionEngine:
         num_classes: int,
         linear_init_path: Optional[str] = None,
         inference_batch_size: int = 64,
+        perturb_target: str = "all",  # "all" | "classifier"
     ):
         from transformers import Dinov2Model
 
@@ -47,6 +48,7 @@ class VisionEngine:
         self._norm_mean = torch.tensor(self._NORM_MEAN, device=self.device).view(1, 3, 1, 1)
         self._norm_std  = torch.tensor(self._NORM_STD,  device=self.device).view(1, 3, 1, 1)
 
+        self.perturb_target = perturb_target  # "all" | "classifier"
         self._base_weights: Optional[dict] = None
         self.store_base_weights()
 
@@ -90,8 +92,16 @@ class VisionEngine:
         for name, p in self.classifier.named_parameters():
             yield f"cls.{name}", p
 
+    def _perturb_params(self):
+        """Params to perturb: all weights, or classifier-only depending on perturb_target."""
+        if self.perturb_target == "classifier":
+            for name, p in self.classifier.named_parameters():
+                yield f"cls.{name}", p
+        else:
+            yield from self._all_params()
+
     def perturb_weights(self, seed: int, sigma: float) -> None:
-        for _name, p in self._all_params():
+        for _name, p in self._perturb_params():
             gen = torch.Generator(device=p.device)
             gen.manual_seed(seed)
             noise = torch.randn(p.shape, dtype=p.dtype, device=p.device, generator=gen)
@@ -101,7 +111,7 @@ class VisionEngine:
             torch.cuda.empty_cache()
 
     def restore_weights(self, seed: int, sigma: float) -> None:
-        for _name, p in self._all_params():
+        for _name, p in self._perturb_params():
             gen = torch.Generator(device=p.device)
             gen.manual_seed(seed)
             noise = torch.randn(p.shape, dtype=p.dtype, device=p.device, generator=gen)

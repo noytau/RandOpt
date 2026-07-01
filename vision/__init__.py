@@ -12,6 +12,7 @@ def launch_vision_engines(
     num_classes: int,
     linear_init_path: Optional[str] = None,
     inference_batch_size: int = 64,
+    perturb_target: str = "all",
 ) -> List:
     """Launch `num_engines` VisionEngine Ray actors, each on one GPU.
 
@@ -21,6 +22,7 @@ def launch_vision_engines(
         num_classes: Number of output classes for the linear head.
         linear_init_path: Optional path to pretrained linear head .pt file.
         inference_batch_size: Images per GPU forward pass (tune to GPU VRAM).
+        perturb_target: "all" (backbone+classifier) or "classifier" (head only).
 
     Returns:
         List of VisionEngine Ray actor handles.
@@ -34,6 +36,7 @@ def launch_vision_engines(
             num_classes=num_classes,
             linear_init_path=linear_init_path,
             inference_batch_size=inference_batch_size,
+            perturb_target=perturb_target,
         )
         for _ in range(num_engines)
     ]

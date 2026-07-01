@@ -66,6 +66,9 @@ def parse_args():
     parser.add_argument("--linear_init_path", type=str, default=None,
                         help="Path to a pretrained linear head .pt file (from vision/train_linear_probe.py). "
                              "If not set, uses random init.")
+    parser.add_argument("--perturb_target", type=str, default="all",
+                        choices=["all", "classifier"],
+                        help="Which weights to perturb: 'all' (backbone+classifier) or 'classifier' (head only).")
     parser.add_argument("--inference_batch_size", type=int, default=64,
                         help="Images per GPU forward pass inside VisionEngine")
     parser.add_argument("--sigma_values", type=str, default="0.0001,0.001,0.01,0.1",
@@ -394,6 +397,7 @@ def main(args):
         num_classes=args.num_classes,
         linear_init_path=args.linear_init_path,
         inference_batch_size=args.inference_batch_size,
+        perturb_target=args.perturb_target,
     )
     print(f"Launched {len(engines)} VisionEngine(s).")
 
