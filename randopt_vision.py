@@ -140,21 +140,8 @@ def load_data(handler, args):
 
 
 def stack_images(datas: List[Dict]) -> torch.Tensor:
-    """Stack image_tensor fields into a single (N, C, H, W) tensor.
-
-    Resizes to 448×448 before stacking to handle variable-size datasets
-    (e.g. FGVC-Aircraft). The VisionEngine _preprocess then resizes to 224.
-    """
-    import torch.nn.functional as F
-    imgs = []
-    for d in datas:
-        img = d["image_tensor"]
-        if img.shape[-2] != 448 or img.shape[-1] != 448:
-            img = F.interpolate(
-                img.unsqueeze(0), size=(448, 448), mode="bicubic", align_corners=False
-            ).squeeze(0)
-        imgs.append(img)
-    return torch.stack(imgs)
+    """Stack image_tensor fields into a single (N, C, H, W) tensor."""
+    return torch.stack([d["image_tensor"] for d in datas])
 
 
 # ---------------------------------------------------------------------------

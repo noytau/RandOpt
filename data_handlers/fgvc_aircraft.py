@@ -10,7 +10,11 @@ from torchvision import transforms
 
 from .base import DatasetHandler
 
-_to_tensor = transforms.ToTensor()
+# Resize to fixed size at load time — FGVC images have variable native dimensions
+_to_tensor = transforms.Compose([
+    transforms.Resize((448, 448)),
+    transforms.ToTensor(),
+])
 
 
 def _load_via_hf(split: str):
