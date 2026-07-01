@@ -18,10 +18,9 @@ CUB200_NUM_CLASSES = 200
 
 def _load_via_hf(split: str):
     from datasets import load_dataset
-    # Multimodal-Fatima splits each set into its own dataset
-    dataset_name = ("Multimodal-Fatima/CUB_train_dataset" if split == "train"
-                    else "Multimodal-Fatima/CUB_test_dataset")
-    return load_dataset(dataset_name, split="train", trust_remote_code=False)
+    hf_split = "train" if split == "train" else "test"
+    return load_dataset("nateraw/caltech-ucsd-birds-200-2011",
+                        split=hf_split, trust_remote_code=False)
 
 
 class CUB200Handler(DatasetHandler):
