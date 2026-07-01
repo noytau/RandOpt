@@ -44,9 +44,8 @@ def _ensure_downloaded(data_dir: str) -> Path:
         return root
     os.makedirs(data_dir, exist_ok=True)
     tgz = Path(data_dir) / "SPair-71k.tar.gz"
-    if not tgz.exists():
-        print(f"Downloading SPair-71k (~3GB) from {SPAIR_URL} ...")
-        subprocess.run(["wget", "-q", "--show-progress", "-O", str(tgz), SPAIR_URL], check=True)
+    print(f"Downloading SPair-71k from {SPAIR_URL} ...")
+    subprocess.run(["wget", "-c", "-q", "--show-progress", "-O", str(tgz), SPAIR_URL], check=True)
     print("Extracting SPair-71k ...")
     subprocess.run(["tar", "-xzf", str(tgz), "-C", data_dir], check=True)
     return root
