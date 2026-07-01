@@ -1,44 +1,68 @@
-"""Train a linear probe on top of a frozen DINOv2 backbone for CIFAR-10.
+"""Train a linear probe on top of a frozen DINOv2 backbone.
 
-Produces a classifier state_dict (.pt) that can be passed to
-randopt_vision.py via --linear_init_path to start perturbation search
-from a known-good point (closer to the LLM setting where the base model
-already has task capability).
+Works with any dataset registered in data_handlers (cifar10, fgvc_aircraft, cub200, ...).
+Produces a classifier state_dict (.pt) for use with --linear_init_path in randopt_vision.py.
 
 Usage:
     python vision/train_linear_probe.py \
         --model_name facebook/dinov2-base \
-        --data_dir data/cifar10 \
+        --dataset cifar10 \
+        --num_classes 10 \
         --output_path data/cifar10/linear_probe_dinov2base.pt \
-        --epochs 10 \
-        --lr 0.001
+        --epochs 10
 """
 import argparse
 import os
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
+from torch.utils.data import DataLoader, TensorDataset
+from torchvision import transforms
 from transformers import Dinov2Model
 
-CIFAR10_CLASSES = [
-    "airplane", "automobile", "bird", "cat", "deer",
-    "dog", "frog", "horse", "ship", "truck",
-]
-
 _transform = transforms.Compose([
-    transforms.Resize(224),
+    transforms.Resize(256),
     transforms.CenterCrop(224),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 ])
 
 
+def load_split(dataset_name: str, data_dir: str, split: str, max_samples=None):
+    """Load a split via the data_handlers registry, returning PIL-transformable items."""
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from data_handlers import get_dataset_handler
+    handler = get_dataset_handler(dataset_name)
+    path = data_dir or handler.default_train_path
+    return handler.load_data(path=path, split=split, max_samples=max_samples)
+
+
+def collate_items(items, device):
+    """Stack raw image tensors (already float32 [0,1] CHW) and re-normalize for DINOv2."""
+    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    imgs, labels = [], []
+    for item in items:
+        img = item["image_tensor"]  # float32 (3, H, W) in [0,1]
+        # Resize to 224 if needed
+        if img.shape[-1] != 224 or img.shape[-2] != 224:
+            img = torch.nn.functional.interpolate(
+                img.unsqueeze(0), size=(224, 224), mode="bicubic", align_corners=False
+            ).squeeze(0)
+        img = normalize(img)
+        imgs.append(img)
+        labels.append(item["class_id"])
+    return torch.stack(imgs).to(device), torch.tensor(labels, dtype=torch.long).to(device)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_name", default="facebook/dinov2-base")
-    parser.add_argument("--data_dir", default="data/cifar10")
+    parser.add_argument("--dataset", default="cifar10",
+                        help="Dataset name from data_handlers registry")
+    parser.add_argument("--num_classes", type=int, default=10)
+    parser.add_argument("--data_dir", default=None,
+                        help="Data root dir (uses handler default if not set)")
     parser.add_argument("--output_path", default="data/cifar10/linear_probe_dinov2base.pt")
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -46,48 +70,40 @@ def main():
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device} | Model: {args.model_name}")
+    print(f"Device: {device} | Backbone: {args.model_name} | Dataset: {args.dataset} | Classes: {args.num_classes}")
 
     backbone = Dinov2Model.from_pretrained(args.model_name).to(device).eval()
     embed_dim = backbone.config.hidden_size
-    classifier = nn.Linear(embed_dim, 10).to(device)
+    classifier = nn.Linear(embed_dim, args.num_classes).to(device)
 
-    try:
-        from datasets import load_dataset
-        hf_train = load_dataset("uoft-cs/cifar10", split="train")
-        hf_val   = load_dataset("uoft-cs/cifar10", split="test")
-        def _hf_collate(batch):
-            imgs = torch.stack([_transform(b["img"]) for b in batch])
-            lbls = torch.tensor([b["label"] for b in batch])
-            return imgs, lbls
-        train_dl = DataLoader(hf_train, batch_size=args.batch_size, shuffle=True,  collate_fn=_hf_collate, num_workers=0)
-        val_dl   = DataLoader(hf_val,   batch_size=args.batch_size, shuffle=False, collate_fn=_hf_collate, num_workers=0)
-        print("Loaded CIFAR-10 from HuggingFace datasets cache")
-    except Exception as e:
-        print(f"HF load failed ({e}), falling back to torchvision...")
-        train_ds = datasets.CIFAR10(args.data_dir, train=True,  download=True, transform=_transform)
-        val_ds   = datasets.CIFAR10(args.data_dir, train=False, download=True, transform=_transform)
-        train_dl = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,  num_workers=0)
-        val_dl   = DataLoader(val_ds,   batch_size=args.batch_size, shuffle=False, num_workers=0)
+    print("Loading data...")
+    train_items = load_split(args.dataset, args.data_dir, "train")
+    val_items   = load_split(args.dataset, args.data_dir, "test")
+    print(f"  Train: {len(train_items)} | Val: {len(val_items)}")
+
+    print("Precomputing DINOv2 features...")
+    def get_features(items):
+        all_feats, all_labels = [], []
+        for i in range(0, len(items), args.batch_size):
+            batch = items[i : i + args.batch_size]
+            imgs, lbls = collate_items(batch, device)
+            with torch.no_grad():
+                feats = backbone(pixel_values=imgs).pooler_output
+            all_feats.append(feats.cpu())
+            all_labels.append(lbls.cpu())
+            if (i // args.batch_size) % 5 == 0:
+                print(f"  {i+len(batch)}/{len(items)}", end="\r")
+        print()
+        return torch.cat(all_feats), torch.cat(all_labels)
+
+    train_feats, train_labels = get_features(train_items)
+    val_feats,   val_labels   = get_features(val_items)
+
+    feat_dl = DataLoader(TensorDataset(train_feats, train_labels),
+                         batch_size=args.batch_size, shuffle=True, num_workers=0)
 
     optim = torch.optim.Adam(classifier.parameters(), lr=args.lr)
     criterion = nn.CrossEntropyLoss()
-
-    # Precompute features to avoid redundant backbone passes
-    print("Precomputing DINOv2 features...")
-    def get_features(loader):
-        feats, labels = [], []
-        with torch.no_grad():
-            for imgs, lbls in loader:
-                f = backbone(pixel_values=imgs.to(device)).pooler_output
-                feats.append(f.cpu())
-                labels.append(lbls)
-        return torch.cat(feats), torch.cat(labels)
-
-    train_feats, train_labels = get_features(train_dl)
-    val_feats,   val_labels   = get_features(val_dl)
-    feat_ds = torch.utils.data.TensorDataset(train_feats, train_labels)
-    feat_dl = DataLoader(feat_ds, batch_size=args.batch_size, shuffle=True)
 
     best_val_acc = 0.0
     for epoch in range(args.epochs):
@@ -95,16 +111,14 @@ def main():
         for feats, lbls in feat_dl:
             feats, lbls = feats.to(device), lbls.to(device)
             optim.zero_grad()
-            loss = criterion(classifier(feats), lbls)
-            loss.backward()
+            criterion(classifier(feats), lbls).backward()
             optim.step()
 
-        # Validation
         classifier.eval()
         with torch.no_grad():
-            logits = classifier(val_feats.to(device))
-            val_acc = (logits.argmax(dim=-1).cpu() == val_labels).float().mean().item()
+            val_acc = (classifier(val_feats.to(device)).argmax(dim=-1).cpu() == val_labels).float().mean().item()
         print(f"Epoch {epoch+1}/{args.epochs}: val_acc={val_acc*100:.2f}%")
+
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             os.makedirs(os.path.dirname(args.output_path) or ".", exist_ok=True)

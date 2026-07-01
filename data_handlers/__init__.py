@@ -1,6 +1,8 @@
 """Dataset handlers registry."""
 from .base import DatasetHandler
 from .cifar10 import CIFAR10Handler
+from .cub200 import CUB200Handler
+from .fgvc_aircraft import FGVCAircraftHandler
 from .countdown import CountdownHandler
 from .gqa import GQAHandler
 from .gsm8k import GSM8KHandler
@@ -24,6 +26,8 @@ DATASET_HANDLERS = {
     "rocstories": ROCStoriesHandler,
     "gqa": GQAHandler,
     "cifar10": CIFAR10Handler,
+    "cub200": CUB200Handler,
+    "fgvc_aircraft": FGVCAircraftHandler,
 }
 
 # -----------------------------------------------------------------------------
