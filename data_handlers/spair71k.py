@@ -1,16 +1,19 @@
 """SPair-71k dataset handler for DINOv2 semantic correspondence.
 
 SPair-71k: ~70k image pairs across 18 semantic categories with keypoint annotations.
-Evaluation metric: PCK@0.1 (Percentage of Correct Keypoints within 10% of bbox size).
+Evaluation: PCK@0.1 — keypoint predicted within 10% of target bbox max(w,h).
 
-No linear head needed — reward is computed from cosine similarity between patch features.
-DINOv2-base baseline PCK@0.1 ~64%, with headroom to ~82% (SOTA with learned heads).
+No linear head needed. Reward = PCK@0.1 from cosine similarity of DINOv2 patch features.
+DINOv2-base baseline PCK@0.1 ~64% on test, headroom to ~82% (SOTA with learned heads).
 
-Reference: Min et al., "SPair-71k: A Large-scale Benchmark for Semantic Correspondence"
-HuggingFace: datasets.load_dataset("jxu124/spair-71k")
+Data is downloaded from POSTECH's official server and cached on PVC.
+
+Reference: Min et al., "SPair-71k: A Large-scale Benchmark for Semantic Correspondence", 2019
+Official: http://cvlab.postech.ac.kr/research/SPair-71k/
 """
 import json
 import os
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -25,67 +28,130 @@ _to_tensor = transforms.Compose([
     transforms.ToTensor(),
 ])
 
-# DINOv2-base patch grid for 224×224 input: 16×16 = 256 patches (14px stride)
+SPAIR_URL = "http://cvlab.postech.ac.kr/research/SPair-71k/data/SPair-71k.tar.gz"
+
+# DINOv2-base patch grid: 224/14 = 16 patches per side
 PATCH_SIZE = 14
-INPUT_SIZE = 224
+INPUT_SIZE = 224   # after engine _preprocess
+LOAD_SIZE  = 448   # images are resized to this at load time, halved by engine
 GRID = INPUT_SIZE // PATCH_SIZE  # 16
 
 
 def _ensure_downloaded(data_dir: str) -> Path:
-    """Download SPair-71k to data_dir via HuggingFace datasets."""
-    from datasets import load_dataset
-    cache = Path(data_dir) / "hf_cache"
-    cache.mkdir(parents=True, exist_ok=True)
-    return load_dataset("jxu124/spair-71k", cache_dir=str(cache))
+    """Download and extract SPair-71k to data_dir if not already present."""
+    root = Path(data_dir) / "SPair-71k"
+    if (root / "ImageData").exists():
+        return root
+    os.makedirs(data_dir, exist_ok=True)
+    tgz = Path(data_dir) / "SPair-71k.tar.gz"
+    if not tgz.exists():
+        print(f"Downloading SPair-71k (~3GB) from {SPAIR_URL} ...")
+        subprocess.run(["wget", "-q", "--show-progress", "-O", str(tgz), SPAIR_URL], check=True)
+    print("Extracting SPair-71k ...")
+    subprocess.run(["tar", "-xzf", str(tgz), "-C", data_dir], check=True)
+    return root
 
 
-def _kpt_to_patch(kx: float, ky: float, img_w: int, img_h: int) -> Tuple[int, int]:
-    """Map a keypoint in original image coords to (row, col) in the 16×16 patch grid."""
-    # Image was resized to 448 → then engine resizes to 224 (factor of 2)
-    scale_x = (INPUT_SIZE / 2) / img_w
-    scale_y = (INPUT_SIZE / 2) / img_h
-    px = min(int(kx * scale_x / PATCH_SIZE), GRID - 1)
-    py = min(int(ky * scale_y / PATCH_SIZE), GRID - 1)
-    return py, px  # row, col
+def _load_split(root: Path, split: str) -> List[Dict]:
+    """Parse SPair-71k annotation JSONs into a list of pair dicts."""
+    from PIL import Image
+
+    split_name = {"train": "trn", "val": "val", "test": "test"}.get(split, split)
+    pair_dir = root / "PairAnnotation" / split_name
+
+    items = []
+    for json_path in sorted(pair_dir.rglob("*.json")):
+        with open(json_path) as f:
+            ann = json.load(f)
+
+        src_path = root / "ImageData" / ann["category"] / ann["src_imname"]
+        tgt_path = root / "ImageData" / ann["category"] / ann["trg_imname"]
+
+        src_img = Image.open(src_path).convert("RGB")
+        tgt_img = Image.open(tgt_path).convert("RGB")
+        src_w, src_h = src_img.size
+        tgt_w, tgt_h = tgt_img.size
+
+        # Bounding box threshold in patch units (standard SPair PCK@0.1)
+        tgt_bbox = ann["trg_bndbox"]   # [x1, y1, x2, y2]
+        bbox_w = (tgt_bbox[2] - tgt_bbox[0]) / tgt_w
+        bbox_h = (tgt_bbox[3] - tgt_bbox[1]) / tgt_h
+        # After resize to LOAD_SIZE → engine rescales to INPUT_SIZE (factor 2 smaller)
+        bbox_thresh = 0.1 * max(bbox_w, bbox_h) * GRID  # in patch units
+
+        # Keypoints: [[x,y], ...], only use visible ones
+        kps_A = ann.get("kps_A", [])  # source keypoints
+        kps_B = ann.get("kps_B", [])  # target keypoints
+        valid = [i for i in range(min(len(kps_A), len(kps_B)))
+                 if kps_A[i] is not None and kps_B[i] is not None]
+
+        kpts_src = [_xy_to_patch(kps_A[i][0], kps_A[i][1], src_w, src_h) for i in valid]
+        kpts_tgt = [_xy_to_patch(kps_B[i][0], kps_B[i][1], tgt_w, tgt_h) for i in valid]
+
+        if not kpts_src:
+            continue
+
+        items.append({
+            "image_tensor":     _to_tensor(src_img),
+            "image_tensor_tgt": _to_tensor(tgt_img),
+            "kpts_src":   kpts_src,
+            "kpts_tgt":   kpts_tgt,
+            "bbox_thresh": bbox_thresh,
+            "category":   ann["category"],
+            "ground_truth": "pck",
+            "messages": [],
+        })
+    return items
+
+
+def _xy_to_patch(x: float, y: float, img_w: int, img_h: int) -> Tuple[int, int]:
+    """Map keypoint (x, y) in original image to (row, col) in 16×16 patch grid.
+
+    Images are loaded at LOAD_SIZE (448) → engine resizes to INPUT_SIZE (224, factor 2).
+    """
+    scale = (INPUT_SIZE / 2) / max(img_w, 1)  # 224 / 448 * (448 / img_w) = 224 / img_w... wait
+    # Actually: image loaded at LOAD_SIZE=448 then engine resizes to 224 (factor 0.5)
+    # So effective scale from original image to 224: 224 / img_w (or img_h)
+    px = min(int(x * (INPUT_SIZE / img_w) / PATCH_SIZE), GRID - 1)
+    py = min(int(y * (INPUT_SIZE / img_h) / PATCH_SIZE), GRID - 1)
+    return py, px  # (row, col)
 
 
 def compute_pck(
-    feats_src: torch.Tensor,         # (P, D) features OR (P, P) sim matrix
-    feats_tgt: Optional[torch.Tensor],  # (P, D) features; None if precomputed_sim=True
-    kpts_src: List[Tuple[int, int]],  # (row, col) in patch grid
+    feats_src: torch.Tensor,
+    feats_tgt: Optional[torch.Tensor],
+    kpts_src: List[Tuple[int, int]],
     kpts_tgt: List[Tuple[int, int]],
-    threshold: float = 0.1,
-    bbox_size: Optional[float] = None,
-    precomputed_sim: bool = False,    # if True, feats_src is a (P, P) sim matrix
+    bbox_thresh: float = 1.6,
+    precomputed_sim: bool = False,
 ) -> float:
-    """Compute PCK@threshold for one image pair.
+    """Compute PCK@0.1 for one image pair.
 
-    For each source keypoint, finds the most similar target patch.
-    Accepts either raw features or a pre-computed (P, P) similarity matrix
-    (used during ensemble averaging).
+    Args:
+        feats_src: (P, D) patch features OR (P, P) similarity matrix
+        feats_tgt: (P, D) patch features; None if precomputed_sim=True
+        kpts_src/tgt: (row, col) in GRID x GRID patch space
+        bbox_thresh: threshold in patch units = 0.1 * max(bbox_w, bbox_h) * GRID
+        precomputed_sim: if True, feats_src is already a (P, P) sim matrix
     """
     if not kpts_src:
         return 0.0
 
-    if bbox_size is None:
-        bbox_size = threshold * GRID  # 0.1 * 16 = 1.6 patches
-
     if precomputed_sim:
-        sim_matrix = feats_src  # (P, P) — rows=src, cols=tgt
-        src_indices = [r * GRID + c for r, c in kpts_src]
-        sim = sim_matrix[src_indices]  # (K, P)
+        src_idx = [r * GRID + c for r, c in kpts_src]
+        sim = feats_src[src_idx]          # (K, P)
     else:
         src_vecs = torch.stack([feats_src[r * GRID + c] for r, c in kpts_src])  # (K, D)
-        sim = src_vecs @ feats_tgt.T  # (K, P)
+        sim = src_vecs @ feats_tgt.T      # (K, P)
 
-    pred_flat = sim.argmax(dim=-1)  # (K,)
+    pred_flat = sim.argmax(dim=-1)        # (K,)
 
     correct = 0
     for i, (tgt_r, tgt_c) in enumerate(kpts_tgt):
         pred_r = int(pred_flat[i]) // GRID
         pred_c = int(pred_flat[i]) % GRID
         dist = ((pred_r - tgt_r) ** 2 + (pred_c - tgt_c) ** 2) ** 0.5
-        if dist <= bbox_size:
+        if dist <= bbox_thresh:
             correct += 1
     return correct / len(kpts_src)
 
@@ -93,7 +159,7 @@ def compute_pck(
 class SPair71kHandler(DatasetHandler):
     name = "spair71k"
     default_train_path = "data/spair71k"
-    default_test_path = "data/spair71k"
+    default_test_path  = "data/spair71k"
     default_max_tokens = 0
 
     def load_data(
@@ -103,46 +169,15 @@ class SPair71kHandler(DatasetHandler):
         max_samples: Optional[int] = None,
         start_index: int = 0,
     ) -> List[Dict]:
-        from PIL import Image as PILImage
-
-        ds = _ensure_downloaded(path)
-        hf_split = "trn" if split == "train" else "test"
-        subset = ds[hf_split]
-
-        items = []
-        for idx in range(start_index, len(subset)):
-            if max_samples is not None and len(items) >= max_samples:
-                break
-            row = subset[idx]
-
-            # Load and resize both images
-            img_src = _to_tensor(row["src_img"].convert("RGB"))
-            img_tgt = _to_tensor(row["trg_img"].convert("RGB"))
-
-            src_w, src_h = row["src_img"].size
-            tgt_w, tgt_h = row["trg_img"].size
-
-            # Convert keypoints to patch-grid coords
-            kpts_src_raw = row["src_kps"]   # list of [x, y] or similar
-            kpts_tgt_raw = row["trg_kps"]
-
-            # SPair-71k stores keypoints as list of [x, y] pairs
-            kpts_src = [_kpt_to_patch(k[0], k[1], src_w, src_h) for k in kpts_src_raw]
-            kpts_tgt = [_kpt_to_patch(k[0], k[1], tgt_w, tgt_h) for k in kpts_tgt_raw]
-
-            items.append({
-                "image_tensor": img_src,       # used for source
-                "image_tensor_tgt": img_tgt,   # used for target
-                "kpts_src": kpts_src,
-                "kpts_tgt": kpts_tgt,
-                "category": row.get("category", ""),
-                "ground_truth": "pck",          # placeholder, reward computed externally
-                "messages": [],
-            })
+        root = _ensure_downloaded(path)
+        items = _load_split(root, split)
+        if start_index:
+            items = items[start_index:]
+        if max_samples is not None:
+            items = items[:max_samples]
         return items
 
     def compute_reward(self, response: str, ground_truth: str) -> float:
-        # PCK is computed externally via compute_pck(); this is a passthrough
         return float(response)
 
     def extract_answer(self, response: str) -> str:

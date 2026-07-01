@@ -76,7 +76,8 @@ def eval_pck(engines, datas: List[Dict], batch_size: int = 32) -> float:
 
     scores = []
     for i, d in enumerate(datas):
-        pck = compute_pck(src_feats[i], tgt_feats[i], d["kpts_src"], d["kpts_tgt"])
+        pck = compute_pck(src_feats[i], tgt_feats[i], d["kpts_src"], d["kpts_tgt"],
+                          bbox_thresh=d.get("bbox_thresh", 1.6))
         scores.append(pck)
     return float(np.mean(scores))
 
@@ -151,7 +152,8 @@ def main(args):
             sf = ray.get(engines[i].get_patch_features.remote(src_imgs))
             tf = ray.get(engines[i].get_patch_features.remote(tgt_imgs))
             pcks = [compute_pck(sf[j], tf[j], train_datas[j]["kpts_src"],
-                                train_datas[j]["kpts_tgt"])
+                                train_datas[j]["kpts_tgt"],
+                                bbox_thresh=train_datas[j].get("bbox_thresh", 1.6))
                     for j in range(len(train_datas))]
             batch_pcks.append(float(np.mean(pcks)))
 
@@ -219,8 +221,9 @@ def main(args):
         pcks = []
         for j, d in enumerate(test_datas):
             pck = compute_pck(
-                sim_accum[j],   # (P, P) sim matrix — override compute_pck to accept
-                None, d["kpts_src"], d["kpts_tgt"],
+                sim_accum[j], None,
+                d["kpts_src"], d["kpts_tgt"],
+                bbox_thresh=d.get("bbox_thresh", 1.6),
                 precomputed_sim=True,
             )
             pcks.append(pck)
