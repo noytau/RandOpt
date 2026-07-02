@@ -51,7 +51,7 @@ def _ensure_downloaded(data_dir: str) -> Path:
     return root
 
 
-def _load_split(root: Path, split: str) -> List[Dict]:
+def _load_split(root: Path, split: str, max_samples: Optional[int] = None) -> List[Dict]:
     """Parse SPair-71k annotation JSONs into a list of pair dicts."""
     from PIL import Image
 
@@ -89,6 +89,9 @@ def _load_split(root: Path, split: str) -> List[Dict]:
 
         if not kpts_src:
             continue
+
+        if max_samples is not None and len(items) >= max_samples:
+            break
 
         items.append({
             "image_tensor":     _to_tensor(src_img),
@@ -169,7 +172,7 @@ class SPair71kHandler(DatasetHandler):
         start_index: int = 0,
     ) -> List[Dict]:
         root = _ensure_downloaded(path)
-        items = _load_split(root, split)
+        items = _load_split(root, split, max_samples=(start_index or 0) + (max_samples or 0) or None)
         if start_index:
             items = items[start_index:]
         if max_samples is not None:
