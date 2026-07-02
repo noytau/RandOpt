@@ -69,10 +69,8 @@ def _load_split(root: Path, split: str) -> List[Dict]:
 
         src_img = Image.open(src_path).convert("RGB")
         tgt_img = Image.open(tgt_path).convert("RGB")
-
-        # SPair-71k stores sizes as [h, w] in the JSON — use to avoid redundant image loads
-        src_h, src_w = ann["src_imsize"][0], ann["src_imsize"][1]
-        tgt_h, tgt_w = ann["trg_imsize"][0], ann["trg_imsize"][1]
+        src_w, src_h = src_img.size   # PIL returns (width, height)
+        tgt_w, tgt_h = tgt_img.size
 
         # Bounding box threshold in patch units (standard SPair PCK@0.1)
         tgt_bbox = ann["trg_bndbox"]   # [x1, y1, x2, y2]
