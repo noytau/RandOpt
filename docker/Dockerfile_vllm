@@ -38,5 +38,10 @@ RUN pip install --no-cache-dir \
     pyarrow \
     tqdm \
     wandb
+# TODO: add transformers torchvision Pillow here and rebuild image once vision
+# correspondence experiment is validated end-to-end. Until then these are
+# installed at job runtime (adds ~2 min per job).
+# docker build -f RandOpt/docker/Dockerfile_vllm -t noyhassid/randopt-vllm:latest .
+# docker push noyhassid/randopt-vllm:latest
 
 WORKDIR /storage/noy/RandOpt
