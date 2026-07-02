@@ -1,6 +1,8 @@
 #!/bin/bash
 # RandOpt semantic correspondence — DINOv2-base on SPair-71k, N=5000.
 set -eo pipefail
+cd /storage/noy/RandOpt
+git pull origin feature/vision-randopt -q
 pip install transformers torchvision Pillow --quiet
 
 export HF_HOME=/storage/noy/.cache/huggingface

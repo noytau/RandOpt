@@ -3,6 +3,8 @@
 # No linear head. Reward = PCK@0.1 from raw patch embedding cosine similarity.
 # DINOv2-base baseline ~64% PCK@0.1 on SPair-71k test set.
 set -eo pipefail
+cd /storage/noy/RandOpt
+git pull origin feature/vision-randopt -q
 pip install wandb transformers torchvision datasets --quiet
 
 export HF_HOME=/storage/noy/.cache/huggingface
