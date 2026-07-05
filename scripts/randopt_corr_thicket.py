@@ -18,12 +18,16 @@ No selection/ensemble logic here by design.
 import argparse
 import json
 import os
+import sys
 import time
 from typing import Dict, List, Tuple
 
 import numpy as np
 import ray
 import torch
+
+# Ensure repo root is importable when run as scripts/randopt_corr_thicket.py
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data_handlers import get_dataset_handler
 from data_handlers.spair71k import compute_pck, GRID
