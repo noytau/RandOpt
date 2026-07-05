@@ -23,6 +23,7 @@ SIGMAS="${SIGMAS:-0.00003,0.0001,0.0003,0.001,0.003}"
 NA="${NA:-200}"
 NB="${NB:-200}"
 BATCH="${BATCH:-64}"
+SEED="${SEED:-42}"
 RUNNAME="${RUNNAME:-thicket-spair71k-v1}"
 
 # -u = unbuffered stdout so logs stream live through tee
@@ -34,6 +35,7 @@ python3 -u scripts/randopt_corr_thicket.py \
     --sigma_values "$SIGMAS" \
     --scopes "$SCOPES" \
     --inference_batch_size "$BATCH" \
+    --global_seed "$SEED" \
     --experiment_dir "results/corr_thicket_${RUNNAME}" \
     --wandb_project randopt \
     --wandb_run_name "$RUNNAME" \
