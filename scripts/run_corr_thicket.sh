@@ -4,7 +4,12 @@
 # Parametrized via env vars so multiple jobs can fan out across GPUs.
 set -eo pipefail
 cd /storage/noy/RandOpt
-git fetch origin feature/vision-randopt -q && git reset --hard origin/feature/vision-randopt -q
+# Concurrency-safe code sync: wait out any other job's git lock; skip entirely
+# with SKIP_SYNC=1 when the PVC is already up to date.
+if [ "${SKIP_SYNC:-0}" != "1" ]; then
+  for _i in $(seq 1 30); do [ -f .git/index.lock ] && sleep 2 || break; done
+  git fetch origin feature/vision-randopt -q && git reset --hard origin/feature/vision-randopt -q
+fi
 pip install transformers torchvision Pillow --quiet
 
 export HF_HOME=/storage/noy/.cache/huggingface
