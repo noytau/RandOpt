@@ -1,6 +1,11 @@
 """VisionEngine: Ray actor wrapping DINOv2 backbone + linear head with RandOpt perturbation."""
 import gc
+import os
+import sys
 from typing import List, Optional
+
+# Ensure repo root is importable inside Ray worker processes (for data_handlers)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 import torch.nn as nn
@@ -177,6 +182,38 @@ class VisionEngine:
                 patch_tokens = F.normalize(patch_tokens, dim=-1)
             all_feats.append(patch_tokens.cpu())
         return torch.cat(all_feats, dim=0)
+
+    def _patch_features_gpu(self, images: torch.Tensor) -> torch.Tensor:
+        """Like get_patch_features but keeps the (N, P, D) tensor on the GPU."""
+        all_feats = []
+        for i in range(0, len(images), self.inference_batch_size):
+            batch = images[i : i + self.inference_batch_size].to(self.device)
+            batch = self._preprocess(batch)
+            with torch.no_grad():
+                out = self.backbone(pixel_values=batch, output_hidden_states=False)
+                patch_tokens = out.last_hidden_state[:, 1:, :]
+                patch_tokens = F.normalize(patch_tokens, dim=-1)
+            all_feats.append(patch_tokens)
+        return torch.cat(all_feats, dim=0)
+
+    def eval_pck(self, src_imgs, tgt_imgs, kpts_src, kpts_tgt, bbox_thresh) -> float:
+        """Compute mean PCK@0.1 entirely on the GPU and return only the scalar.
+
+        Features never leave the GPU — only the final float crosses the Ray
+        boundary, avoiding ~600MB of feature-tensor transfer per call.
+
+        Args:
+            src_imgs, tgt_imgs: (N,3,H,W) float32 in [0,1]
+            kpts_src, kpts_tgt: length-N lists of [(row,col), ...] keypoints
+            bbox_thresh: length-N list of per-pair PCK thresholds (patch units)
+        """
+        from data_handlers.spair71k import compute_pck
+        sf = self._patch_features_gpu(src_imgs)
+        tf = self._patch_features_gpu(tgt_imgs)
+        scores = [compute_pck(sf[i], tf[i], kpts_src[i], kpts_tgt[i],
+                              bbox_thresh=bbox_thresh[i])
+                  for i in range(len(kpts_src))]
+        return float(sum(scores) / len(scores)) if scores else 0.0
 
     def get_embed_dim(self) -> int:
         return self.backbone.config.hidden_size

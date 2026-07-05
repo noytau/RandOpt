@@ -59,14 +59,18 @@ def stack(datas: List[Dict], key: str) -> torch.Tensor:
     return torch.stack([d[key] for d in datas])
 
 
-def eval_pck(engine, src_imgs, tgt_imgs, datas) -> float:
-    """Mean PCK@0.1 over a set of pairs using current engine weights."""
-    sf = ray.get(engine.get_patch_features.remote(src_imgs))
-    tf = ray.get(engine.get_patch_features.remote(tgt_imgs))
-    scores = [compute_pck(sf[i], tf[i], d["kpts_src"], d["kpts_tgt"],
-                          bbox_thresh=d.get("bbox_thresh", 1.6))
-              for i, d in enumerate(datas)]
-    return float(np.mean(scores))
+def make_eval_inputs(datas):
+    """Precompute the per-pair keypoint/threshold lists passed to engine.eval_pck."""
+    kpts_src = [d["kpts_src"] for d in datas]
+    kpts_tgt = [d["kpts_tgt"] for d in datas]
+    bbox = [d.get("bbox_thresh", 1.6) for d in datas]
+    return kpts_src, kpts_tgt, bbox
+
+
+def eval_pck(engine, src_imgs, tgt_imgs, ev) -> float:
+    """Mean PCK@0.1 computed GPU-side inside the engine (returns a scalar only)."""
+    kpts_src, kpts_tgt, bbox = ev
+    return ray.get(engine.eval_pck.remote(src_imgs, tgt_imgs, kpts_src, kpts_tgt, bbox))
 
 
 def parse_args():
@@ -105,6 +109,7 @@ def main(args):
 
     srcA, tgtA = stack(dataA, "image_tensor"), stack(dataA, "image_tensor_tgt")
     srcB, tgtB = stack(dataB, "image_tensor"), stack(dataB, "image_tensor_tgt")
+    evA, evB = make_eval_inputs(dataA), make_eval_inputs(dataB)
 
     ray.init(ignore_reinit_error=True)
     engines = launch_vision_engines(
@@ -115,13 +120,14 @@ def main(args):
     engine = engines[0]
 
     # Base (no perturbation)
-    base_A = eval_pck(engine, srcA, tgtA, dataA)
-    base_B = eval_pck(engine, srcB, tgtB, dataB)
+    base_A = eval_pck(engine, srcA, tgtA, evA)
+    base_B = eval_pck(engine, srcB, tgtB, evB)
     print(f"\nBase PCK  A={base_A*100:.2f}%  B={base_B*100:.2f}%\n")
     if wandb_run:
         wandb_run.log({"base/pck_A": base_A, "base/pck_B": base_B})
 
-    sigmas = [float(s) for s in args.sigma_values.split(",")]
+    # Descending sigma so the interesting high-sigma cells report first
+    sigmas = sorted([float(s) for s in args.sigma_values.split(",")], reverse=True)
     scopes = [parse_scope(t) for t in args.scopes.split(",")]
     rng = np.random.default_rng(args.global_seed)
 
@@ -137,8 +143,8 @@ def main(args):
             t0 = time.time()
             for seed in seeds:
                 ray.get(engine.perturb_weights.remote(int(seed), float(sigma)))
-                pcks_A.append(eval_pck(engine, srcA, tgtA, dataA))
-                pcks_B.append(eval_pck(engine, srcB, tgtB, dataB))
+                pcks_A.append(eval_pck(engine, srcA, tgtA, evA))
+                pcks_B.append(eval_pck(engine, srcB, tgtB, evB))
                 ray.get(engine.restore_weights.remote(int(seed), float(sigma)))
             aA, aB = np.array(pcks_A), np.array(pcks_B)
             best_by_A = int(aA.argmax())
