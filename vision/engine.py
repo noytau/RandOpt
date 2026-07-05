@@ -208,8 +208,12 @@ class VisionEngine:
             bbox_thresh: length-N list of per-pair PCK thresholds (patch units)
         """
         from data_handlers.spair71k import compute_pck
-        sf = self._patch_features_gpu(src_imgs)
-        tf = self._patch_features_gpu(tgt_imgs)
+        # Bulk-copy features to CPU ONCE (a single ~25ms PCIe transfer inside the
+        # actor), then run PCK on CPU. This avoids BOTH the Ray serialization of
+        # the 157MB tensors AND the per-keypoint GPU->CPU sync that int() would
+        # trigger if compute_pck ran on GPU tensors.
+        sf = self._patch_features_gpu(src_imgs).cpu()
+        tf = self._patch_features_gpu(tgt_imgs).cpu()
         scores = [compute_pck(sf[i], tf[i], kpts_src[i], kpts_tgt[i],
                               bbox_thresh=bbox_thresh[i])
                   for i in range(len(kpts_src))]
