@@ -13,6 +13,7 @@ def launch_vision_engines(
     linear_init_path: Optional[str] = None,
     inference_batch_size: int = 64,
     perturb_target: str = "all",
+    last_n_blocks: int = 0,
 ) -> List:
     """Launch `num_engines` VisionEngine Ray actors, each on one GPU.
 
@@ -37,6 +38,7 @@ def launch_vision_engines(
             linear_init_path=linear_init_path,
             inference_batch_size=inference_batch_size,
             perturb_target=perturb_target,
+            last_n_blocks=last_n_blocks,
         )
         for _ in range(num_engines)
     ]

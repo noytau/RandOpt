@@ -26,7 +26,8 @@ class VisionEngine:
         num_classes: int,
         linear_init_path: Optional[str] = None,
         inference_batch_size: int = 64,
-        perturb_target: str = "all",  # "all" | "classifier"
+        perturb_target: str = "all",  # "all" | "classifier" | "last_n_blocks"
+        last_n_blocks: int = 0,       # used when perturb_target == "last_n_blocks"
     ):
         from transformers import Dinov2Model
 
@@ -48,7 +49,8 @@ class VisionEngine:
         self._norm_mean = torch.tensor(self._NORM_MEAN, device=self.device).view(1, 3, 1, 1)
         self._norm_std  = torch.tensor(self._NORM_STD,  device=self.device).view(1, 3, 1, 1)
 
-        self.perturb_target = perturb_target  # "all" | "classifier"
+        self.perturb_target = perturb_target  # "all" | "classifier" | "last_n_blocks"
+        self.last_n_blocks = last_n_blocks
         self._base_weights: Optional[dict] = None
         self.store_base_weights()
 
@@ -93,12 +95,34 @@ class VisionEngine:
             yield f"cls.{name}", p
 
     def _perturb_params(self):
-        """Params to perturb: all weights, or classifier-only depending on perturb_target."""
+        """Params to perturb, depending on perturb_target:
+        "all"           -> backbone + classifier
+        "classifier"    -> linear head only
+        "last_n_blocks" -> only the last N transformer blocks of the backbone
+        """
         if self.perturb_target == "classifier":
             for name, p in self.classifier.named_parameters():
                 yield f"cls.{name}", p
+        elif self.perturb_target == "last_n_blocks":
+            num_layers = self.backbone.config.num_hidden_layers
+            keep = set(range(num_layers - self.last_n_blocks, num_layers))
+            for name, p in self.backbone.named_parameters():
+                # DINOv2 block params are named "encoder.layer.{i}.*"
+                parts = name.split(".")
+                if len(parts) >= 3 and parts[0] == "encoder" and parts[1] == "layer" \
+                        and int(parts[2]) in keep:
+                    yield name, p
         else:
             yield from self._all_params()
+
+    def set_perturb_scope(self, perturb_target: str, last_n_blocks: int = 0) -> None:
+        """Switch the perturbation scope on a live engine (avoids reloading the model)."""
+        self.perturb_target = perturb_target
+        self.last_n_blocks = last_n_blocks
+
+    def count_perturb_params(self) -> int:
+        """Number of scalar parameters currently in scope for perturbation."""
+        return sum(p.numel() for _n, p in self._perturb_params())
 
     def perturb_weights(self, seed: int, sigma: float) -> None:
         for _name, p in self._perturb_params():
