@@ -4,7 +4,7 @@
 # Parametrized via env vars so multiple jobs can fan out across GPUs.
 set -eo pipefail
 cd /storage/noy/RandOpt
-git pull origin feature/vision-randopt -q
+git fetch origin feature/vision-randopt -q && git reset --hard origin/feature/vision-randopt -q
 pip install transformers torchvision Pillow --quiet
 
 export HF_HOME=/storage/noy/.cache/huggingface
