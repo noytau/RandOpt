@@ -1,6 +1,7 @@
 #!/bin/bash
 # E1: individual-gain / thicket-existence study on SPair-71k (DINOv2, no head).
 # Scans scope x sigma, reports best held-out individual gain over base.
+# Parametrized via env vars so multiple jobs can fan out across GPUs.
 set -eo pipefail
 cd /storage/noy/RandOpt
 git pull origin feature/vision-randopt -q
@@ -10,13 +11,23 @@ export HF_HOME=/storage/noy/.cache/huggingface
 export WANDB_API_KEY=$(cat /storage/noy/.wandb_api_key)
 mkdir -p results
 
-python3 scripts/randopt_corr_thicket.py \
+# Tunables (override via `runai submit -e KEY=VAL`)
+SCOPES="${SCOPES:-all,last2,last1}"
+NPOP="${NPOP:-60}"
+SIGMAS="${SIGMAS:-0.00003,0.0001,0.0003,0.001,0.003}"
+NA="${NA:-200}"
+NB="${NB:-200}"
+RUNNAME="${RUNNAME:-thicket-spair71k-v1}"
+
+# -u = unbuffered stdout so logs stream live through tee
+python3 -u scripts/randopt_corr_thicket.py \
     --dataset spair71k \
     --model_name facebook/dinov2-base \
-    --nA 200 --nB 200 \
-    --population_size 60 \
-    --sigma_values 0.00003,0.0001,0.0003,0.001,0.003 \
-    --scopes all,last2,last1 \
+    --nA "$NA" --nB "$NB" \
+    --population_size "$NPOP" \
+    --sigma_values "$SIGMAS" \
+    --scopes "$SCOPES" \
+    --experiment_dir "results/corr_thicket_${RUNNAME}" \
     --wandb_project randopt \
-    --wandb_run_name thicket-spair71k-v1 \
-    2>&1 | tee results/corr_thicket.log
+    --wandb_run_name "$RUNNAME" \
+    2>&1 | tee "results/${RUNNAME}.log"
