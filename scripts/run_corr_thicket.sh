@@ -13,8 +13,8 @@ mkdir -p results
 python3 scripts/randopt_corr_thicket.py \
     --dataset spair71k \
     --model_name facebook/dinov2-base \
-    --nA 250 --nB 250 \
-    --population_size 100 \
+    --nA 200 --nB 200 \
+    --population_size 60 \
     --sigma_values 0.00003,0.0001,0.0003,0.001,0.003 \
     --scopes all,last2,last1 \
     --wandb_project randopt \
