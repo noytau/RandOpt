@@ -219,6 +219,58 @@ class VisionEngine:
                   for i in range(len(kpts_src))]
         return float(sum(scores) / len(scores)) if scores else 0.0
 
+    def _cls_features_gpu(self, images: torch.Tensor) -> torch.Tensor:
+        """(N,3,H,W) [0,1] -> (N, D) L2-normalized CLS tokens, kept on GPU."""
+        all_feats = []
+        for i in range(0, len(images), self.inference_batch_size):
+            batch = images[i : i + self.inference_batch_size].to(self.device)
+            batch = self._preprocess(batch)
+            with torch.no_grad():
+                out = self.backbone(pixel_values=batch)
+                cls = F.normalize(out.last_hidden_state[:, 0, :], dim=-1)
+            all_feats.append(cls)
+        return torch.cat(all_feats, dim=0)
+
+    def eval_global(self, gallery_imgs, gallery_labels, query_sets,
+                    k: int = 20, tau: float = 0.07):
+        """kNN top-1 + retrieval mAP for each query set against one gallery.
+
+        The gallery is forwarded ONCE and reused across query sets (the A/B
+        splits), matching the shared-forward design of the thicket profile.
+
+        Args:
+            gallery_imgs: (G,3,H,W) float32 in [0,1]
+            gallery_labels: length-G list of int class ids
+            query_sets: list of (imgs, labels) tuples
+            k: kNN neighbors (DINO-style weighted vote)
+            tau: vote temperature
+        Returns:
+            list of {"knn_top1": float, "map": float}, one per query set.
+        """
+        g = self._cls_features_gpu(gallery_imgs)                       # (G, D)
+        gl = torch.tensor(gallery_labels, device=self.device)
+        num_classes = int(gl.max()) + 1
+        results = []
+        for imgs, labels in query_sets:
+            q = self._cls_features_gpu(imgs)                           # (Q, D)
+            ql = torch.tensor(labels, device=self.device)
+            sim = q @ g.T                                              # (Q, G)
+            # DINO-style weighted kNN vote
+            topv, topi = sim.topk(min(k, sim.shape[1]), dim=1)
+            w = (topv / tau).exp()
+            votes = torch.zeros(len(q), num_classes, device=self.device)
+            votes.scatter_add_(1, gl[topi], w)
+            top1 = (votes.argmax(dim=1) == ql).float().mean().item()
+            # retrieval mAP (binary relevance = same class)
+            order = sim.argsort(dim=1, descending=True)
+            rel = (gl[order] == ql[:, None]).float()                   # (Q, G)
+            ranks = torch.arange(1, rel.shape[1] + 1,
+                                 device=self.device, dtype=torch.float)
+            prec = rel.cumsum(dim=1) / ranks
+            ap = (prec * rel).sum(dim=1) / rel.sum(dim=1).clamp(min=1)
+            results.append({"knn_top1": top1, "map": float(ap.mean())})
+        return results
+
     def get_embed_dim(self) -> int:
         return self.backbone.config.hidden_size
 
