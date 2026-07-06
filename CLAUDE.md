@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 RandOpt implements **Neural Thickets** (paper: arxiv 2603.12228): instead of gradient-based fine-tuning, it randomly perturbs a pretrained LLM's weights using Gaussian noise, evaluates each perturbation on a small train set, selects the top-K perturbations by reward, and uses majority voting (ensemble) over these perturbed models to answer test queries. The key insight is that high-quality task-adapted models are densely packed around pretrained weights.
 
-**Vision extension (branch `feature/vision-randopt`):** The same algorithm applied to DINOv2 + CIFAR-10. See [`VISION.md`](VISION.md) for full details, CLI reference, and cluster run commands.
+**Vision / SSL extension (branch `feature/vision-randopt`):** The same algorithm applied to DINOv2 — classification (CIFAR-10, CUB-200, FGVC-Aircraft) and semantic correspondence (SPair-71k, no head). See [`VISION.md`](VISION.md) and the **Vision & SSL Correspondence Experiments** section below. Headline finding: RandOpt does **not** transfer to DINOv2's SSL init — the reachable weight neighborhood is a flat plateau, not a thicket of better models (see findings below).
 
 ## Running Experiments
 
@@ -88,6 +88,55 @@ Follow the 3-step guide in `CUSTOM_DATASET_GUIDE.md`:
 2. Add reward function in `utils/reward_score/your_dataset.py` and handler in `data_handlers/your_dataset.py`
 3. Register in `data_handlers/__init__.py`
 
+## Vision & SSL Correspondence Experiments
+
+Branch `feature/vision-randopt`. These apply RandOpt beyond LLMs, reusing the `DatasetHandler` + W&B plumbing but swapping vLLM for a PyTorch+Ray `VisionEngine` (`vision/engine.py`, launched via `vision/launch_vision_engines`).
+
+### Entry points
+| Script | What it does |
+|--------|--------------|
+| `randopt_vision.py` | DINOv2 + linear head **classification** (CIFAR-10, CUB-200, FGVC-Aircraft). Perturb backbone+head, ensemble by majority vote. |
+| `randopt_correspondence.py` | DINOv2 **semantic correspondence** on SPair-71k. **No head** — reward = PCK@0.1 from cosine similarity of patch embeddings. Ensemble by averaging (N,256,256) similarity matrices then argmax. |
+| `scripts/randopt_corr_thicket.py` | **Thicket-existence study**: scope×σ scan, each perturbation scored on two disjoint held-out splits A/B, reports unbiased "one-expert" gain + Spearman ρ(A,B). No selection/ensemble. |
+| `scripts/count_params.py` | CPU param inventory (per-block counts, validates `last_n_blocks` scope filter). |
+
+### VisionEngine (`vision/engine.py`)
+- `perturb_target`: `"all"` (86.58M backbone+head) · `"classifier"` (head only) · `"last_n_blocks"` (last N transformer blocks; DINOv2-base = 12 blocks named `encoder.layer.{i}`, ~7.09M each).
+- `set_perturb_scope(target, n)` — switch scope on a **live** actor (no model reload); `count_perturb_params()` reports in-scope scalar count.
+- `perturb_weights/restore_weights(seed, sigma)` — same per-seed `torch.Generator` scheme as the LLM path (bit-exact restore).
+- `get_patch_features(imgs)` → `(N, 256, 768)` L2-normalized patch tokens (skips CLS token 0).
+- `eval_pck(...)` — computes PCK@0.1 **inside the actor** and returns only the scalar. Bulk `.cpu()` once then CPU PCK — avoids both the ~157MB/​call Ray tensor transfer **and** the per-keypoint GPU→CPU sync that `int()` triggers on GPU tensors. (Note: on A5000/A6000 the forward pass still dominates at ~8s/perturbation for 800 imgs; batch size barely matters.)
+
+### Datasets added (`data_handlers/`)
+- `spair71k` — SPair-71k correspondence. Downloads from POSTECH (`SPair-71k.tar.gz`, use `wget -c`), parses `PairAnnotation/{trn,val,test}/*.json`; fields are `src_kps`/`trg_kps`, images under `JPEGImages/<category>/`, image size from PIL (`.size` = w,h; the JSON `*_imsize` is `[w,h,c]`). PCK threshold = `0.1·max(bbox_w,bbox_h)·GRID` (GRID=16).
+- `cifar10`, `cub200`, `fgvc_aircraft` — classification handlers (classification track largely superseded by correspondence).
+
+### Thicket study design
+Each perturbation is scored on **two disjoint held-out splits A and B**. Rank on A, report the winner's **B**-score → unbiased one-expert gain (defeats the winner's-curse that inflated the `max`). ρ(PCK_A, PCK_B) across perturbations is the **selection-generalization** signal: ρ≈0 = differences are pure noise; ρ→1 = perturbations have real reproducible effects. This A/B split is our addition, not from the paper.
+
+Run via `scripts/run_corr_thicket.sh`, tuned by env vars: `SCOPES` (e.g. `all,last2,last1`), `NPOP` (N per cell), `SIGMAS`, `NA`/`NB` (held-out sizes), `BATCH`, `SEED` (**use different seeds across jobs** so draws are independent and pool to a larger effective N), `RUNNAME`, `SKIP_SYNC`.
+
+### Key findings (2026-07)
+- **CIFAR-10:** DINOv2+probe base ~98.7% is at ceiling → RandOpt gain ~0 (no headroom).
+- **SPair-71k correspondence:** base PCK@0.1 ~54–58%. Full-scope N=500 ensemble ≈0 gain; best single perturbation +2pp on the scoring set but **+0 on held-out** (winner's-curse).
+- **Thicket sweep (scope×σ, ~30k perturbations, N up to 3000/cell, σ 3e-4…1e-1):** best unbiased held-out one-expert gain **+0.34pp**, inside the ~0.8pp noise floor → **no thicket**. The scope→cliff mechanism *is* confirmed: `all` collapses to ~9% (random) by σ=0.01; `last2` degrades to ~47%; `last1` barely moves (~54%) even at σ=0.1. But where perturbations have real effect (high ρ) they only **hurt**; where harmless (low σ) they're noise (ρ≈0.1).
+- **Conclusion (hypothesis "b"):** DINOv2's SSL init sits on a **flat plateau** for frozen-backbone/no-head correspondence, *not* in a thicket of better models — unlike instruct-LLMs which are already task-adapted. Making RandOpt work on SSL likely needs a **trainable component to perturb around** (a trained correspondence head or a partial fine-tune), not the raw SSL backbone.
+
+### Cluster run example (thicket)
+```bash
+# 1) ONE dedicated sync job (never let multiple jobs touch git at once):
+runai submit pvc-sync -p raja -i noyhassid/randopt-vllm:latest --backoff-limit 0 \
+  --existing-pvc claimname=storage,path=/storage --working-dir /storage/noy/RandOpt \
+  --command -- bash -c "cd /storage/noy/RandOpt && git fetch origin -q && \
+    git reset --hard origin/feature/vision-randopt"
+# 2) then compute jobs with SKIP_SYNC=1:
+runai submit thicket-last1 -p raja -i noyhassid/randopt-vllm:latest -g 1 --backoff-limit 0 \
+  -e SKIP_SYNC=1 -e SCOPES=last1 -e NPOP=1000 -e BATCH=256 -e SEED=42 \
+  -e SIGMAS=0.0003,0.001,0.003,0.01,0.03,0.1 -e RUNNAME=thicket-last1 \
+  --existing-pvc claimname=storage,path=/storage \
+  --command -- bash /storage/noy/RandOpt/scripts/run_corr_thicket.sh
+```
+
 ## Baselines
 
 PPO / GRPO / ES baselines live under `baselines/` (built on VERL). Separate conda env required:
@@ -144,9 +193,14 @@ bash scripts/submit_wandb_test.sh
 
 ### Node / GPU notes
 
-- Always use `--node-type NVIDIA-H100-80GB-HBM3` to land on node8 (H100). A6000 nodes (9, 2, 10) have a 42 GiB zombie GPU memory issue that causes OOM.
+- **H100 (node8)** is fastest but frequently grabbed by another queue → jobs pend. For small jobs (e.g. DINOv2-base), **drop `--node-type`** and take any free GPU; **node7 (RTX-6000 Ada)** is the fastest freely-available one. A5000 nodes (1,3,4,5,6) and A6000 (node2, node9) work fine. **node10 is usually Unschedulable.**
 - On Mac CLI: use `-g 1` not `--gpu 1`.
-- `runai workload list` (not the deprecated `runai list jobs`).
+- Use `runai list jobs -p raja` to list/check jobs (the `runai workload list` form is not available on this gateway; `runai describe job <name> -p raja` for status).
+- **Always submit with `--backoff-limit 0`** — otherwise a crash auto-restarts in a loop (this caused overnight runaway restarts).
+- **PVC code sync:** use `git fetch + git reset --hard origin/<branch>`; plain `git pull` fails on divergent PVC edits. Only ONE job may touch git at a time — a dedicated `pvc-sync` job, then compute jobs with `SKIP_SYNC=1` (concurrent git → `.git/index.lock` crash).
+- Run Python with `-u` (unbuffered) or stdout won't stream through `tee`.
+- Build Docker for `linux/amd64` (`docker buildx build --platform linux/amd64 --push`) — Mac ARM64 images fail to pull with `no match for platform`.
+- The SSH gateway (Geoffry) is intermittently flaky and the RunAI token expires periodically — re-run `runai login` **on the gateway** to refresh.
 
 ### One-time cluster setup
 
@@ -161,13 +215,13 @@ git -C /storage/noy/RandOpt remote set-url origin \
 
 ### Rebuilding the Docker image
 
-Only needed when dependencies change (not on code changes — code lives on PVC):
+Only needed when dependencies change (not on code changes — code lives on PVC). **Must target `linux/amd64`** (Mac is ARM64; an ARM image fails to pull on the cluster with `no match for platform`):
 ```bash
-# Build from the parent of RandOpt/
-docker build -f RandOpt/docker/Dockerfile_vllm -t noyhassid/randopt-vllm:latest .
-docker push noyhassid/randopt-vllm:latest
+# Build+push from the parent of RandOpt/ (buildx does both)
+docker buildx build --platform linux/amd64 \
+  -f RandOpt/docker/Dockerfile_vllm -t noyhassid/randopt-vllm:latest --push .
 ```
-`wandb` is currently installed at job runtime (`pip install wandb --quiet` in submit scripts) until the image is next rebuilt.
+Alternatively trigger the GitHub Actions workflow `.github/workflows/docker-build.yml` (builds amd64 on a GH runner, needs `DOCKERHUB_TOKEN` secret). The image now bundles `wandb`, `transformers`, `torchvision`, `Pillow`; the vision run scripts still `pip install` them at runtime as a fallback.
 
 ## W&B Experiment Tracking
 
