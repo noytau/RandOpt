@@ -116,11 +116,15 @@ Each perturbation is scored on **two disjoint held-out splits A and B**. Rank on
 
 Run via `scripts/run_corr_thicket.sh`, tuned by env vars: `SCOPES` (e.g. `all,last2,last1`), `NPOP` (N per cell), `SIGMAS`, `NA`/`NB` (held-out sizes), `BATCH`, `SEED` (**use different seeds across jobs** so draws are independent and pool to a larger effective N), `RUNNAME`, `SKIP_SYNC`.
 
-### Key findings (2026-07)
+### Key findings (2026-07, sweep COMPLETE — all 5 jobs Succeeded)
 - **CIFAR-10:** DINOv2+probe base ~98.7% is at ceiling → RandOpt gain ~0 (no headroom).
 - **SPair-71k correspondence:** base PCK@0.1 ~54–58%. Full-scope N=500 ensemble ≈0 gain; best single perturbation +2pp on the scoring set but **+0 on held-out** (winner's-curse).
-- **Thicket sweep (scope×σ, ~30k perturbations, N up to 3000/cell, σ 3e-4…1e-1):** best unbiased held-out one-expert gain **+0.34pp**, inside the ~0.8pp noise floor → **no thicket**. The scope→cliff mechanism *is* confirmed: `all` collapses to ~9% (random) by σ=0.01; `last2` degrades to ~47%; `last1` barely moves (~54%) even at σ=0.1. But where perturbations have real effect (high ρ) they only **hurt**; where harmless (low σ) they're noise (ρ≈0.1).
-- **Conclusion (hypothesis "b"):** DINOv2's SSL init sits on a **flat plateau** for frozen-backbone/no-head correspondence, *not* in a thicket of better models — unlike instruct-LLMs which are already task-adapted. Making RandOpt work on SSL likely needs a **trainable component to perturb around** (a trained correspondence head or a partial fine-tune), not the raw SSL backbone.
+- **Thicket sweep — FINAL (scope×σ, ~36k perturbations, N=1000 broad + N=3000 deep, σ 3e-4…1e-1, held-out A/B):** best unbiased one-expert gain across everything = **+0.34pp** (last1, σ=1e-3/3e-3, N=3000) — inside the ~0.8pp noise floor → **no expert, no thicket**. Every job printed *"no individual gain → hypothesis b"*.
+  - **scope→cliff fully mapped:** `all` collapses (→~9%, random) between σ=1e-3 (−4.6pp) and σ=3e-3 (−45pp); `last2` tolerates up to ~1e-3 then degrades; `last1` is remarkably robust — only −2.7pp even at σ=0.1 (last-block contribution to correspondence is diffuse/redundant).
+  - **ρ diagnostic:** where perturbations have real reproducible effect (high ρ, e.g. `all` σ=1e-3 ρ=0.63) the effect is **negative**; where harmless (low σ) ρ≈0.05 (noise). No regime has high ρ *and* positive gain.
+  - **deep N=3000 settles it:** 4× more draws at the best cells moved the max from +0.22 → +0.34pp (still noise) — more sampling does not uncover an expert.
+- **Conclusion (hypothesis "b", definitive):** DINOv2's SSL init is a **flat plateau** for frozen-backbone/no-head correspondence, *not* a thicket of better models — unlike instruct-LLMs which are already task-adapted. Making RandOpt work on SSL needs a **trainable component to perturb around** (trained correspondence head or partial fine-tune) so the base sits in a task-thicket. This is the recommended next direction; the raw-SSL-backbone approach is a confirmed dead end.
+- Full per-cell numbers: `results/report.html` (SSL Correspondence section) and each run's `results/corr_thicket_*/results.json`; W&B project `randopt`, runs `thicket-*-night` / `thicket-*-deep`.
 
 ### Cluster run example (thicket)
 ```bash

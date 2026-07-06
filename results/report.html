@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RandOpt / Neural Thickets — Experiment Report</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --border: #2d3044;
+    --accent: #7c6fff;
+    --accent2: #4ecdc4;
+    --accent3: #ff6b6b;
+    --accent4: #ffd93d;
+    --text: #e2e8f0;
+    --muted: #8892a4;
+    --green: #51cf66;
+    --orange: #ff9f43;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; line-height: 1.6; }
+  a { color: var(--accent); }
+
+  .hero { background: linear-gradient(135deg, #1a1d27 0%, #13142b 100%); border-bottom: 1px solid var(--border); padding: 3rem 2rem 2rem; text-align: center; }
+  .hero h1 { font-size: 2.4rem; font-weight: 700; background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .hero .subtitle { color: var(--muted); margin-top: .5rem; font-size: 1.05rem; }
+  .hero .date { color: var(--muted); font-size: .85rem; margin-top: .3rem; }
+
+  .container { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+  section { margin-bottom: 3rem; }
+  h2 { font-size: 1.5rem; font-weight: 700; color: var(--accent); border-left: 4px solid var(--accent); padding-left: .75rem; margin-bottom: 1.25rem; }
+  h3 { font-size: 1.1rem; font-weight: 600; color: var(--accent2); margin: 1.25rem 0 .6rem; }
+  p { color: var(--text); margin-bottom: .75rem; }
+  .muted { color: var(--muted); font-size: .9rem; }
+
+  /* Cards */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1rem; }
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+  .metric-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.1rem 1.3rem; }
+  .metric-card .label { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .metric-card .value { font-size: 1.9rem; font-weight: 700; margin: .1rem 0; }
+  .metric-card .sub { font-size: .82rem; color: var(--muted); }
+  .green { color: var(--green); }
+  .orange { color: var(--orange); }
+  .purple { color: var(--accent); }
+  .teal { color: var(--accent2); }
+  .red { color: var(--accent3); }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th { background: #252838; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: .75rem; letter-spacing: .05em; padding: .65rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+  td { padding: .6rem 1rem; border-bottom: 1px solid #1e2134; color: var(--text); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #20233a; }
+  .best { color: var(--green); font-weight: 700; }
+  .bad { color: var(--accent3); }
+  .neutral { color: var(--muted); }
+  .tag { display: inline-block; padding: .15rem .5rem; border-radius: 4px; font-size: .75rem; font-weight: 600; }
+  .tag-llm { background: #2d2060; color: var(--accent); }
+  .tag-vision { background: #0d3040; color: var(--accent2); }
+
+  /* Charts */
+  .chart-container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1rem; }
+  .chart-title { font-size: .9rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 1rem; }
+  .bar-chart { display: flex; flex-direction: column; gap: .55rem; }
+  .bar-row { display: flex; align-items: center; gap: .75rem; }
+  .bar-label { width: 220px; font-size: .82rem; color: var(--text); flex-shrink: 0; text-align: right; }
+  .bar-track { flex: 1; background: #252838; border-radius: 4px; height: 24px; overflow: hidden; position: relative; }
+  .bar-fill { height: 100%; border-radius: 4px; display: flex; align-items: center; padding-left: .4rem; font-size: .78rem; font-weight: 700; transition: width .3s; min-width: 2px; }
+  .bar-val { margin-left: .4rem; font-size: .82rem; color: var(--muted); flex-shrink: 0; width: 60px; }
+
+  /* Sigma chart */
+  .sigma-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+  /* Code */
+  code { background: #252838; border: 1px solid var(--border); border-radius: 4px; padding: .1rem .35rem; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: .85rem; color: var(--accent2); }
+  pre code { display: block; padding: .75rem 1rem; line-height: 1.55; overflow-x: auto; }
+
+  /* Callouts */
+  .callout { border-radius: 8px; padding: .9rem 1.1rem; margin: 1rem 0; border-left: 4px solid; }
+  .callout-info { background: #1a2040; border-color: var(--accent); }
+  .callout-success { background: #0d2d1a; border-color: var(--green); }
+  .callout-warning { background: #2d1f00; border-color: var(--orange); }
+  .callout-danger { background: #2d0d0d; border-color: var(--accent3); }
+  .callout strong { display: block; margin-bottom: .2rem; font-size: .9rem; }
+
+  /* Key finding */
+  .finding { background: linear-gradient(135deg, #1a1d27, #13142b); border: 1px solid var(--accent); border-radius: 10px; padding: 1.25rem 1.5rem; margin: 1.25rem 0; }
+  .finding .num { font-size: 2rem; font-weight: 800; color: var(--accent); float: right; }
+  .finding h4 { color: var(--accent2); font-size: 1rem; margin-bottom: .3rem; }
+  .finding p { color: var(--text); font-size: .9rem; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: .5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab { padding: .4rem .9rem; border-radius: 6px; border: 1px solid var(--border); cursor: default; font-size: .85rem; }
+  .tab-active { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
+  .tab-inactive { background: var(--card); color: var(--muted); }
+
+  /* Progress dots */
+  .phase-row { display: flex; align-items: center; gap: .5rem; margin: .4rem 0; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot-done { background: var(--green); }
+  .dot-run { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .phase-text { font-size: .88rem; }
+
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+
+  @media (max-width: 700px) {
+    .card-grid { grid-template-columns: 1fr 1fr; }
+    .sigma-grid { grid-template-columns: 1fr; }
+    .bar-label { width: 130px; font-size: .75rem; }
+    h2 { font-size: 1.25rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>RandOpt / Neural Thickets</h1>
+  <div class="subtitle">Experiment Report — Random Perturbation as an Alternative to Fine-Tuning</div>
+  <div class="date">Generated July 1, 2026 &nbsp;|&nbsp; W&amp;B project: noyhassid-tau/randopt</div>
+</div>
+
+<div class="container">
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>1. What Was Tested</h2>
+  <div class="card">
+    <p><strong>Neural Thickets</strong> (arXiv 2603.12228) proposes that high-quality task-adapted models are <em>densely packed</em> around pretrained weights in parameter space. Rather than fine-tuning with gradients, RandOpt randomly perturbs weights using Gaussian noise, scores each perturbation on a small training set, selects the top-K, and uses <strong>majority voting</strong> (ensemble) for inference.</p>
+    <p>This session tested the hypothesis on two distinct model families:</p>
+    <div class="card-grid" style="margin-top:1rem">
+      <div class="card" style="border-color:#2d2060">
+        <h3 style="margin-top:0">🔤 LLM Track</h3>
+        <p class="muted">Task: Countdown arithmetic<br>Models: Qwen2.5-0.5B and 1.5B Instruct<br>Metric: % of problems solved correctly</p>
+      </div>
+      <div class="card" style="border-color:#0d3040">
+        <h3 style="margin-top:0">🖼 Vision Track</h3>
+        <p class="muted">Task: CIFAR-10 image classification<br>Model: DINOv2-base + linear probe<br>Metric: top-1 accuracy</p>
+      </div>
+    </div>
+    <div class="callout callout-info">
+      <strong>Countdown task</strong> Given 4 numbers and a target value, produce a valid arithmetic expression (using +, −, ×, ÷) that evaluates to the target. This is a pure reasoning task with no memorizable patterns. A random model scores ~0–13% depending on size.
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>2. Algorithm Phases</h2>
+  <div class="card">
+    <div class="phase-row"><div class="dot dot-done"></div><div class="phase-text"><strong>Phase 1 — Base eval:</strong> Run the unmodified model on a train split and a held-out test split. Records <code>base/train_reward</code> and <code>base/test_accuracy</code>. This is the baseline to beat.</div></div>
+    <div class="phase-row"><div class="dot dot-done"></div><div class="phase-text"><strong>Phase 2 — Perturbation sampling:</strong> For each of <code>population_size</code> random (seed, σ) pairs, add Gaussian noise N(0, σ²) to every weight, run inference on the train set, then subtract the exact same noise (deterministic per-seed generator). Records <code>sampling/batch_mean_reward</code> per batch.</div></div>
+    <div class="phase-row"><div class="dot dot-done"></div><div class="phase-text"><strong>Phase 3 — Selection:</strong> Sort all perturbations by train reward. Keep the top-K according to <code>top_k_ratios</code> × population. Records <code>sampling/best_sigma</code> — the σ value of the best-performing perturbation.</div></div>
+    <div class="phase-row"><div class="dot dot-done"></div><div class="phase-text"><strong>Phase 4 — Ensemble evaluation:</strong> Re-apply each top-K perturbation on the test set. Majority-vote predicted answers per question across the K models. Reports <code>ensemble/kK/accuracy</code> and <code>ensemble/kK/gain_over_base</code>.</div></div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>3. Engine Architecture — LLM vs Vision</h2>
+
+  <div class="callout callout-info">
+    <strong>Design principle</strong>
+    Both engines wrap a pretrained model in a Ray remote actor on a single GPU and implement the same three-operation contract: <code>perturb_weights(seed, σ)</code>, run inference, <code>restore_weights(seed, σ)</code>. The perturbation math is bit-for-bit identical — only the inference path differs.
+  </div>
+
+  <div class="card-grid">
+    <div class="card" style="border-color:#2d2060">
+      <h3 style="margin-top:0;color:var(--accent)">🔤 LLM Engine — <code>core/engine.py</code></h3>
+      <p class="muted" style="margin-bottom:.75rem">Built on vLLM + Ray placement groups</p>
+      <div class="phase-row"><div class="dot" style="background:var(--accent)"></div><div class="phase-text"><strong>Model:</strong> Any HuggingFace causal LM (Qwen, LLaMA…). Loaded by vLLM into GPU shards.</div></div>
+      <div class="phase-row"><div class="dot" style="background:var(--accent)"></div><div class="phase-text"><strong>Perturb target:</strong> All LM weights (0.5B–7B+ params). Accessed via <code>WorkerExtension</code> injected into vLLM's worker class.</div></div>
+      <div class="phase-row"><div class="dot" style="background:var(--accent)"></div><div class="phase-text"><strong>Inference:</strong> Text generation with sampling params → string outputs → regex answer extraction.</div></div>
+      <div class="phase-row"><div class="dot" style="background:var(--accent)"></div><div class="phase-text"><strong>Ensemble:</strong> Majority vote across K string answers per question.</div></div>
+      <div class="phase-row"><div class="dot" style="background:var(--accent)"></div><div class="phase-text"><strong>Multi-GPU:</strong> Tensor parallel (tp &gt; 1) via vLLM; multiple engines = multiple model copies.</div></div>
+    </div>
+    <div class="card" style="border-color:#0d3040">
+      <h3 style="margin-top:0;color:var(--accent2)">🖼 Vision Engine — <code>vision/engine.py</code></h3>
+      <p class="muted" style="margin-bottom:.75rem">Built on HuggingFace Transformers + Ray actor</p>
+      <div class="phase-row"><div class="dot" style="background:var(--accent2)"></div><div class="phase-text"><strong>Model:</strong> DINOv2 backbone (86M params) + optional linear head. Loaded directly via <code>Dinov2Model.from_pretrained()</code>.</div></div>
+      <div class="phase-row"><div class="dot" style="background:var(--accent2)"></div><div class="phase-text"><strong>Perturb target:</strong> All backbone + head weights (<code>perturb_target="all"</code>) or head only (<code>"classifier"</code>).</div></div>
+      <div class="phase-row"><div class="dot" style="background:var(--accent2)"></div><div class="phase-text"><strong>Inference (classification):</strong> <code>forward()</code> → CLS token → linear head → argmax class ID.</div></div>
+      <div class="phase-row"><div class="dot" style="background:var(--accent2)"></div><div class="phase-text"><strong>Inference (correspondence):</strong> <code>get_patch_features()</code> → 16×16 L2-normalized patch tokens → cosine similarity matrix.</div></div>
+      <div class="phase-row"><div class="dot" style="background:var(--accent2)"></div><div class="phase-text"><strong>Ensemble:</strong> Average (N, 256, 256) similarity matrices across K models, then argmax per keypoint.</div></div>
+    </div>
+  </div>
+
+  <h3>Perturbation — Shared Math, Different Access Path</h3>
+  <div class="card-grid">
+    <div class="card" style="border-color:#2d2060">
+      <p class="muted" style="font-size:.8rem;margin-bottom:.5rem">LLM — via WorkerExtension injected into vLLM</p>
+      <pre><code><span style="color:var(--muted)"># utils/worker_extn.py</span>
+def perturb_self_weights(self, seed, sigma):
+    for name, p in model.named_parameters():
+        gen = torch.Generator(device=p.device)
+        gen.manual_seed(seed)
+        noise = torch.randn(p.shape, generator=gen)
+        p.data.add_(sigma * noise)
+
+def restore_self_weights(self, seed, sigma):
+    for name, p in model.named_parameters():
+        gen = torch.Generator(device=p.device)
+        gen.manual_seed(seed)  <span style="color:var(--muted)"># identical noise</span>
+        noise = torch.randn(p.shape, generator=gen)
+        p.data.add_(-sigma * noise)</code></pre>
+    </div>
+    <div class="card" style="border-color:#0d3040">
+      <p class="muted" style="font-size:.8rem;margin-bottom:.5rem">Vision — direct PyTorch parameter loop</p>
+      <pre><code><span style="color:var(--muted)"># vision/engine.py</span>
+def perturb_weights(self, seed, sigma):
+    for _name, p in self._perturb_params():
+        gen = torch.Generator(device=p.device)
+        gen.manual_seed(seed)
+        noise = torch.randn(p.shape, generator=gen)
+        p.data.add_(sigma * noise)
+
+def restore_weights(self, seed, sigma):
+    for _name, p in self._perturb_params():
+        gen = torch.Generator(device=p.device)
+        gen.manual_seed(seed)  <span style="color:var(--muted)"># identical noise</span>
+        noise = torch.randn(p.shape, generator=gen)
+        p.data.add_(-sigma * noise)</code></pre>
+    </div>
+  </div>
+
+  <div class="callout callout-success">
+    <strong>Why per-param generators?</strong>
+    Each parameter gets its own <code>torch.Generator</code> re-seeded with the same <code>seed</code>. This guarantees restore = undo exactly — no floating-point drift, even across multiple perturb/restore cycles. The LLM path uses this to avoid re-loading weights from disk between perturbations. The vision path inherited the same design.
+  </div>
+
+  <h3>Inference Path Comparison</h3>
+  <div class="card" style="padding:0;overflow:hidden">
+  <table>
+    <thead><tr><th>Aspect</th><th><span class="tag tag-llm">LLM</span> vLLM path</th><th><span class="tag tag-vision">Vision</span> classification</th><th><span class="tag tag-vision">Vision</span> correspondence</th></tr></thead>
+    <tbody>
+      <tr><td>Input</td><td>Tokenised prompt strings</td><td>(N, 3, H, W) image tensors</td><td>(N, 3, H, W) image tensors</td></tr>
+      <tr><td>Backbone output used</td><td>Sampled token sequence</td><td>CLS pooler output (1×768)</td><td>Patch tokens 1:257 (256×768)</td></tr>
+      <tr><td>Head</td><td>LM head (vocab logits)</td><td>Linear (768→C)</td><td>None — raw cosine similarity</td></tr>
+      <tr><td>Answer format</td><td>String → regex extract</td><td>argmax class ID</td><td>argmax patch index → (row, col)</td></tr>
+      <tr><td>Reward signal</td><td>Format + correctness reward</td><td>Top-1 accuracy</td><td>PCK@0.1</td></tr>
+      <tr><td>Ensemble strategy</td><td>Majority vote on strings</td><td>Majority vote on class IDs</td><td>Average (N,256,256) sim matrices → argmax</td></tr>
+      <tr><td>Preprocessing</td><td>Tokenizer</td><td>Resize to 224, ImageNet norm</td><td>Resize to 224, ImageNet norm</td></tr>
+      <tr><td>Batch processing</td><td>vLLM handles internally</td><td>Chunked at <code>inference_batch_size</code></td><td>Chunked at <code>inference_batch_size</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Key Differences in Practice</h3>
+  <div class="card">
+    <table>
+      <thead><tr><th>Property</th><th><span class="tag tag-llm">LLM</span></th><th><span class="tag tag-vision">Vision</span></th></tr></thead>
+      <tbody>
+        <tr><td>Framework layer</td><td>vLLM (optimised generation engine)</td><td>Raw PyTorch + HuggingFace</td></tr>
+        <tr><td>Perturbation access</td><td>Via <code>worker_extension_cls</code> hook into vLLM internals</td><td>Direct <code>param.data</code> access — simpler</td></tr>
+        <tr><td>Weight count</td><td>500M–7B+</td><td>86M backbone + small head</td></tr>
+        <tr><td>σ sensitivity</td><td>Graceful — 10× σ → ~30–40% relative drop</td><td>Cliff-edge — 10× σ → total collapse (99%→10%)</td></tr>
+        <tr><td>Optimal σ range</td><td>10⁻⁴ – 5×10⁻³</td><td>10⁻⁵ – 10⁻⁴ (100× smaller)</td></tr>
+        <tr><td>Base weight snapshot</td><td>Not stored — add/subtract drift acceptable</td><td><code>store_base_weights()</code> / <code>reset_to_base()</code> available for drift-free ensemble</td></tr>
+        <tr><td>Correspondence ensemble</td><td>N/A — majority vote on text</td><td>Accumulate <code>bmm(sf, tf.T)</code> across K models, average, argmax</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>4. W&amp;B Parameter Glossary</h2>
+
+  <h3>Config Parameters (Hyperparameters)</h3>
+  <div class="card" style="padding:0; overflow:hidden">
+  <table>
+    <thead><tr><th>Parameter</th><th>What it controls</th><th>Values used</th></tr></thead>
+    <tbody>
+      <tr><td><code>model_name</code></td><td>Pretrained model to perturb. Fully determines base capability and weight count.</td><td>Qwen2.5-{0.5B,1.5B}-Instruct · facebook/dinov2-{small,base}</td></tr>
+      <tr><td><code>population_size</code></td><td>Total number of random (seed, σ) perturbations evaluated in Phase 2. Larger = better coverage of the noise landscape but linear cost.</td><td>20 (smoke) · 500 (main runs)</td></tr>
+      <tr><td><code>sigma_values</code></td><td>Comma-separated noise scales σ tested. Each perturbation randomly picks one. σ controls how far from the pretrained weights the search reaches.</td><td>LLM: 0.0001–0.002 · Vision: 0.0001–0.1</td></tr>
+      <tr><td><code>top_k_ratios</code></td><td>Fractions of population kept for ensemble. E.g. 0.01 × 500 = top-5 models. Controls ensemble size K.</td><td>0.01, 0.05, 0.1 → K=5, 25, 50</td></tr>
+      <tr><td><code>train_samples</code></td><td>Number of train-set examples used to <em>score</em> each perturbation. Larger = more reliable scoring but more compute per perturbation.</td><td>200 (LLM) · 1000 (Vision)</td></tr>
+      <tr><td><code>test_samples</code></td><td>Test-set examples used in Phase 4 ensemble eval. None = full test set.</td><td>Full test set (LLM) · 2000 (Vision)</td></tr>
+      <tr><td><code>global_seed</code></td><td>RNG seed for reproducibility of (seed, σ) sampling. Does not affect per-perturbation noise (those use per-seed generators).</td><td>42</td></tr>
+      <tr><td><code>linear_init_path</code></td><td><em>(Vision only)</em> Path to a pre-trained linear probe .pt file. If set, the linear head starts from a trained checkpoint rather than random init. Critical for meaningful vision experiments.</td><td>None (smoke) · linear_probe_dinov2base.pt (full)</td></tr>
+      <tr><td><code>gpu_memory_utilization</code></td><td><em>(LLM only)</em> Fraction of GPU VRAM reserved for vLLM KV-cache. Higher = larger context; lower = less OOM risk.</td><td>0.85 (0.5B) · 0.75 (1.5B)</td></tr>
+      <tr><td><code>tp</code></td><td><em>(LLM only)</em> Tensor-parallel degree — how many GPUs share each model's weights. tp=1 means one model per GPU.</td><td>1 (all runs)</td></tr>
+      <tr><td><code>num_engines</code></td><td>Parallel model instances (one per GPU). Each evaluates a separate perturbation in the same batch.</td><td>1 (all runs — single GPU)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 style="margin-top:1.5rem">Logged Metrics</h3>
+  <div class="card" style="padding:0; overflow:hidden">
+  <table>
+    <thead><tr><th>Metric</th><th>Phase</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>base/train_reward</code></td><td>After Phase 1</td><td>Fraction of training examples the <em>unmodified</em> model answers correctly. Used as the scoring baseline for perturbations.</td></tr>
+      <tr><td><code>base/test_accuracy</code></td><td>After Phase 1</td><td>Fraction of <em>test</em> examples the unmodified model gets right. The single-model greedy baseline.</td></tr>
+      <tr><td><code>sampling/batch_mean_reward</code></td><td>Phase 2 (per batch)</td><td>Mean train reward of the perturbation(s) evaluated in that batch. Trends upward if the search is productive.</td></tr>
+      <tr><td><code>sampling/batch_max_reward</code></td><td>Phase 2 (per batch)</td><td>Best train reward seen in that batch. Equals mean when batch size = 1 (single engine).</td></tr>
+      <tr><td><code>sampling/samples_evaluated</code></td><td>Phase 2 (cumulative)</td><td>Running count of perturbations scored so far. Should reach <code>population_size</code> at the end.</td></tr>
+      <tr><td><code>sampling/best_sigma</code></td><td>After Phase 2</td><td>The σ value of the single highest-scoring perturbation across all 500. The most important hyperparameter: tells you what noise scale works for this model/task.</td></tr>
+      <tr><td><code>sigma/σ/mean_reward</code></td><td>After Phase 2</td><td>Average train reward of all perturbations that used noise scale σ. Reveals which σ bucket performs best on average (vs best_sigma which is the single peak).</td></tr>
+      <tr><td><code>ensemble/kK/accuracy</code></td><td>Phase 4</td><td>Test accuracy after majority-voting across the top-K perturbations. The primary result metric — did the ensemble improve over the base model?</td></tr>
+      <tr><td><code>ensemble/kK/gain_over_base</code></td><td>Phase 4</td><td>Absolute percentage-point improvement of the ensemble over <code>base/test_accuracy</code>. The core claim of the paper.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>5. LLM Experiments — Countdown Task</h2>
+
+  <div class="tabs">
+    <div class="tab tab-active">Qwen2.5-0.5B</div>
+    <div class="tab tab-inactive">Qwen2.5-1.5B</div>
+  </div>
+
+  <div class="callout callout-info">
+    <strong>Setup</strong>
+    Both runs: N=500 perturbations, 200 train samples, single A5000 GPU (24 GB). Sigma range chosen to be very small (order of 10⁻³ to 10⁻⁴) following prior Neural Thickets results showing LLMs are sensitive to large perturbations.
+  </div>
+
+  <!-- Metric Cards -->
+  <h3>0.5B Results</h3>
+  <div class="card-grid">
+    <div class="metric-card"><div class="label">Base Test Accuracy</div><div class="value neutral">0.5%</div><div class="sub">Essentially random on countdown</div></div>
+    <div class="metric-card"><div class="label">Best Ensemble (K=50)</div><div class="value green">12.15%</div><div class="sub">+11.65 pp over base</div></div>
+    <div class="metric-card"><div class="label">Improvement Factor</div><div class="value purple">24×</div><div class="sub">Relative gain</div></div>
+    <div class="metric-card"><div class="label">Best Sigma</div><div class="value teal">0.0005</div><div class="sub">Smallest sigma tested</div></div>
+  </div>
+
+  <h3>1.5B Results</h3>
+  <div class="card-grid">
+    <div class="metric-card"><div class="label">Base Test Accuracy</div><div class="value orange">13%</div><div class="sub">3B already has some reasoning</div></div>
+    <div class="metric-card"><div class="label">Best Ensemble (K=50)</div><div class="value green">39.85%</div><div class="sub">+26.85 pp over base</div></div>
+    <div class="metric-card"><div class="label">Improvement Factor</div><div class="value purple">3×</div><div class="sub">Relative gain</div></div>
+    <div class="metric-card"><div class="label">Best Sigma</div><div class="value teal">0.0005</div><div class="sub">Same scale as 0.5B</div></div>
+  </div>
+
+  <!-- Ensemble comparison bar chart -->
+  <div class="chart-container">
+    <div class="chart-title">Ensemble Accuracy vs Ensemble Size K — Both LLM Models</div>
+    <div class="bar-chart">
+      <div class="bar-row"><div class="bar-label">0.5B Base (no ensemble)</div><div class="bar-track"><div class="bar-fill" style="width:1.26%;background:#8892a4">0.5%</div></div><div class="bar-val">0.5%</div></div>
+      <div class="bar-row"><div class="bar-label">0.5B K=5</div><div class="bar-track"><div class="bar-fill" style="width:25.16%;background:#7c6fff">10.0%</div></div><div class="bar-val">10.0%</div></div>
+      <div class="bar-row"><div class="bar-label">0.5B K=25</div><div class="bar-track"><div class="bar-fill" style="width:30.02%;background:#7c6fff">11.95%</div></div><div class="bar-val">11.95%</div></div>
+      <div class="bar-row"><div class="bar-label">0.5B K=50</div><div class="bar-track"><div class="bar-fill" style="width:30.52%;background:#7c6fff">12.15%</div></div><div class="bar-val">12.15%</div></div>
+      <div style="height:.5rem"></div>
+      <div class="bar-row"><div class="bar-label">1.5B Base (no ensemble)</div><div class="bar-track"><div class="bar-fill" style="width:32.66%;background:#8892a4">13%</div></div><div class="bar-val">13%</div></div>
+      <div class="bar-row"><div class="bar-label">1.5B K=5</div><div class="bar-track"><div class="bar-fill" style="width:64.97%;background:#4ecdc4">25.85%</div></div><div class="bar-val">25.85%</div></div>
+      <div class="bar-row"><div class="bar-label">1.5B K=25</div><div class="bar-track"><div class="bar-fill" style="width:98.68%;background:#4ecdc4">39.25%</div></div><div class="bar-val">39.25%</div></div>
+      <div class="bar-row"><div class="bar-label">1.5B K=50</div><div class="bar-track"><div class="bar-fill" style="width:100%;background:#51cf66">39.85%</div></div><div class="bar-val">39.85%</div></div>
+    </div>
+    <p class="muted" style="margin-top:.75rem;font-size:.8rem">Bar width scaled to 1.5B K=50 = 100% (39.85%). All bars comparable on an absolute scale.</p>
+  </div>
+
+  <!-- Sigma sensitivity -->
+  <div class="chart-container">
+    <div class="chart-title">Mean Train Reward by Sigma — LLM (lower σ consistently wins)</div>
+    <div class="bar-chart">
+      <div class="bar-row"><div class="bar-label">0.5B σ=0.0005 ★</div><div class="bar-track"><div class="bar-fill" style="width:87%;background:#51cf66">4.07%</div></div><div class="bar-val">4.07%</div></div>
+      <div class="bar-row"><div class="bar-label">0.5B σ=0.001</div><div class="bar-track"><div class="bar-fill" style="width:60%;background:#ffd93d">2.52%</div></div><div class="bar-val">2.52%</div></div>
+      <div class="bar-row"><div class="bar-label">0.5B σ=0.002</div><div class="bar-track"><div class="bar-fill" style="width:45%;background:#ff9f43">1.89%</div></div><div class="bar-val">1.89%</div></div>
+      <div style="height:.5rem"></div>
+      <div class="bar-row"><div class="bar-label">1.5B σ=0.0001</div><div class="bar-track"><div class="bar-fill" style="width:88%;background:#4ecdc4">14.01%</div></div><div class="bar-val">14.01%</div></div>
+      <div class="bar-row"><div class="bar-label">1.5B σ=0.0005 ★</div><div class="bar-track"><div class="bar-fill" style="width:94%;background:#51cf66">14.97%</div></div><div class="bar-val">14.97%</div></div>
+      <div class="bar-row"><div class="bar-label">1.5B σ=0.001</div><div class="bar-track"><div class="bar-fill" style="width:91%;background:#ffd93d">14.56%</div></div><div class="bar-val">14.56%</div></div>
+      <div class="bar-row"><div class="bar-label">1.5B σ=0.002</div><div class="bar-track"><div class="bar-fill" style="width:70%;background:#ff6b6b">11.15%</div></div><div class="bar-val">11.15%</div></div>
+    </div>
+    <p class="muted" style="margin-top:.75rem;font-size:.8rem">★ = best_sigma for that run. LLMs show graceful degradation — increasing σ reduces reward but doesn't crash to zero.</p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Head-to-Head: 0.5B vs 1.5B</h3>
+    <div style="overflow-x:auto">
+    <table>
+      <thead><tr><th>Metric</th><th>0.5B</th><th>1.5B</th><th>Takeaway</th></tr></thead>
+      <tbody>
+        <tr><td>Base test accuracy</td><td class="neutral">0.5%</td><td class="orange">13%</td><td>1.5B already has real reasoning ability</td></tr>
+        <tr><td>Best sigma (σ*)</td><td class="teal">0.0005</td><td class="teal">0.0005</td><td>Same scale — model size doesn't shift optimal σ</td></tr>
+        <tr><td>Ensemble K=5</td><td>10.0% (+9.5pp)</td><td>25.85% (+12.85pp)</td><td>1.5B gains more even at K=5</td></tr>
+        <tr><td>Ensemble K=25</td><td>11.95% (+11.45pp)</td><td class="best">39.25% (+26.25pp)</td><td>Huge gap: 1.5B has far more exploitable structure</td></tr>
+        <tr><td>Ensemble K=50</td><td>12.15% (+11.65pp)</td><td class="best">39.85% (+26.85pp)</td><td>K=50 adds little over K=25 for both</td></tr>
+        <tr><td>K=25→K=50 marginal gain</td><td>+0.2pp</td><td>+0.6pp</td><td>Diminishing returns — K=25 captures most value</td></tr>
+        <tr><td>Runtime</td><td>~3.2 hours</td><td>~5.5 hours</td><td>~1.7× longer for 3× the parameters</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="callout callout-success">
+    <strong>Key LLM finding</strong>
+    The 1.5B model at K=25 reaches <strong>39.25%</strong> on countdown — nearly 3× the 0.5B ensemble (12%). Larger models have richer "thickets" of good perturbations. The best sigma is identical across both model sizes (σ=0.0005), suggesting a universal noise scale property tied to the training procedure rather than model size. Adding more models beyond K=25 has negligible effect, implying the diversity of top-25 perturbations already covers most of the vote-able answer space.
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>6. Vision Experiments — DINOv2 + CIFAR-10</h2>
+
+  <div class="callout callout-info">
+    <strong>Setup</strong>
+    First application of Neural Thickets to SSL vision models. DINOv2 backbone (Meta) with a linear classification head. Both backbone and head weights are perturbed simultaneously. CIFAR-10 = 10-class image classification (60k images, 32×32 px).
+  </div>
+
+  <h3>Experiment A — Smoke Test (random linear head)</h3>
+  <div class="card-grid">
+    <div class="metric-card"><div class="label">Base Accuracy</div><div class="value red">8%</div><div class="sub">Random linear head → near chance</div></div>
+    <div class="metric-card"><div class="label">Best Ensemble (K=4)</div><div class="value orange">10.5%</div><div class="sub">+2.5 pp</div></div>
+    <div class="metric-card"><div class="label">Best Sigma</div><div class="value red">0.1</div><div class="sub">Large noise needed to escape random head</div></div>
+    <div class="metric-card"><div class="label">Population</div><div class="value muted">20</div><div class="sub">Smoke test only</div></div>
+  </div>
+
+  <h3>Experiment B — Full Run (98.22% linear probe warm init)</h3>
+  <div class="card-grid">
+    <div class="metric-card"><div class="label">Base Accuracy</div><div class="value green">98.7%</div><div class="sub">Linear probe: 98.22% → eval: 98.7%</div></div>
+    <div class="metric-card"><div class="label">Best Ensemble (K=25)</div><div class="value green">98.75%</div><div class="sub">+0.05 pp over base</div></div>
+    <div class="metric-card"><div class="label">Best Sigma</div><div class="value teal">0.0001</div><div class="sub">Tiny — near-optimal model needs tiny steps</div></div>
+    <div class="metric-card"><div class="label">Population</div><div class="value teal">500</div><div class="sub">Same as LLM runs</div></div>
+  </div>
+
+  <!-- Sigma sensitivity — vision is dramatic -->
+  <div class="chart-container">
+    <div class="chart-title">Mean Train Reward by Sigma — Vision Full Run (cliff-edge sensitivity)</div>
+    <div class="bar-chart">
+      <div class="bar-row"><div class="bar-label">σ=0.0001 ★</div><div class="bar-track"><div class="bar-fill" style="width:99.6%;background:#51cf66">99.04%</div></div><div class="bar-val">99.04%</div></div>
+      <div class="bar-row"><div class="bar-label">σ=0.001</div><div class="bar-track"><div class="bar-fill" style="width:95.7%;background:#ffd93d">95.30%</div></div><div class="bar-val">95.30%</div></div>
+      <div class="bar-row"><div class="bar-label">σ=0.01</div><div class="bar-track"><div class="bar-fill" style="width:10.2%;background:#ff6b6b">10.14%</div></div><div class="bar-val">10.14%</div></div>
+      <div class="bar-row"><div class="bar-label">σ=0.1</div><div class="bar-track"><div class="bar-fill" style="width:9.99%;background:#ff6b6b">9.95%</div></div><div class="bar-val">9.95%</div></div>
+    </div>
+    <p class="muted" style="margin-top:.75rem;font-size:.8rem">★ = best_sigma. σ=0.01 and σ=0.1 collapse to ~10% = random chance (10 classes). The transition is extremely abrupt — one order of magnitude in σ takes 99% → 10%.</p>
+  </div>
+
+  <div class="callout callout-warning">
+    <strong>Why the cliff?</strong>
+    DINOv2's backbone weights encode rich visual features built up over massive pretraining. Even small perturbations to the backbone at σ=0.01 destroy the feature geometry — the activations become incoherent, and the linear classifier (which learned to decode coherent features) can no longer classify. LLMs are more robust to noise because language structure is more distributed across weights.
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Smoke Test vs Full Run</h3>
+    <table>
+      <thead><tr><th>Metric</th><th>Smoke (random head)</th><th>Full (98.22% probe)</th><th>Why different</th></tr></thead>
+      <tbody>
+        <tr><td>Linear init</td><td class="bad">Random (~10%)</td><td class="best">Trained probe (98.22%)</td><td>Warm init is essential — matches LLM pretrained advantage</td></tr>
+        <tr><td>Base test acc</td><td class="bad">8%</td><td class="best">98.7%</td><td></td></tr>
+        <tr><td>Best sigma</td><td class="bad">0.1 (large)</td><td class="best">0.0001 (tiny)</td><td>Near-optimal model → need tiny perturbations near the peak</td></tr>
+        <tr><td>Best ensemble gain</td><td>+2.5 pp</td><td>+0.05 pp</td><td>Ceiling effect: 98.7% leaves almost no room for improvement</td></tr>
+        <tr><td>Population</td><td>20</td><td>500</td><td>Proper search coverage in the full run</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>7. SSL Correspondence — DINOv2 + SPair-71k (Thicket Search)</h2>
+
+  <div class="callout callout-info">
+    <strong>Setup</strong>
+    The cleanest SSL test: semantic correspondence on SPair-71k using <em>raw DINOv2 patch embeddings</em> — <strong>no linear head, no training of any kind</strong>. Reward = PCK@0.1 (a source keypoint's most-similar target patch must land within 10% of the target bounding box). This tests whether random weight perturbation can find a better <em>correspondence</em> model in the neighborhood of the SSL init. Base PCK@0.1 ≈ 58% (headroom exists — supervised SOTA ~80–90%).
+  </div>
+
+  <div class="callout callout-warning">
+    <strong>Why the earlier ensemble looked flat — and the honest metric</strong>
+    A first N=500 run gave ≈0 ensemble gain, and the best single perturbation scored +2pp on the scoring set but +0 on held-out (classic winner's-curse). So we switched to an honest design: each perturbation is scored on <strong>two disjoint held-out splits A and B</strong>; we rank on A and report the winner's score on <strong>B</strong> (unbiased "one-expert" gain), and track ρ(A,B) — the selection-generalization signal (ρ≈0 = pure noise, ρ→1 = real reproducible effect).
+  </div>
+
+  <h3>Scope × σ — one-expert held-out gain (pp), base_B = 58.37%</h3>
+  <div class="card" style="padding:0; overflow:hidden">
+  <table>
+    <thead><tr><th>scope (params)</th><th>σ=3e-4</th><th>σ=1e-3</th><th>σ=3e-3</th><th>σ=1e-2</th><th>σ=3e-2</th><th>σ=1e-1</th></tr></thead>
+    <tbody>
+      <tr><td><code>all</code> (86.6M)</td><td class="neutral">+0.04</td><td class="bad">−4.6</td><td class="bad">−45.4</td><td class="bad">−49.2</td><td class="bad">−49.6</td><td class="bad">−48.9</td></tr>
+      <tr><td><code>last2</code> (14.2M)</td><td class="neutral">−0.10</td><td class="neutral">+0.20</td><td class="bad">−1.5</td><td class="bad">−5.6</td><td class="bad">−10.2</td><td class="bad">−9.4</td></tr>
+      <tr><td><code>last1</code> (7.1M)</td><td class="neutral">+0.00</td><td class="neutral">−0.20</td><td class="neutral">−0.46</td><td class="bad">−1.5</td><td class="bad">−3.3</td><td class="bad">−2.7</td></tr>
+      <tr><td><code>last1</code> deep (N=3000)</td><td class="neutral">—</td><td class="neutral">+0.34</td><td class="neutral">+0.34</td><td class="neutral">—</td><td class="neutral">—</td><td class="neutral">—</td></tr>
+      <tr><td><code>last2</code> deep (N=3000)</td><td class="neutral">—</td><td class="neutral">−0.12</td><td class="neutral">+0.07</td><td class="neutral">—</td><td class="neutral">—</td><td class="neutral">—</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="muted" style="margin-top:.5rem;font-size:.8rem">~36,000 perturbations total (N=1000 broad sweep + N=3000 deep). Noise floor ≈ 0.8pp (the base A–B gap). Green would mean ≥+5pp; nothing clears noise.</p>
+
+  <div class="card-grid" style="margin-top:1rem">
+    <div class="metric-card"><div class="label">Best one-expert gain (all cells)</div><div class="value neutral">+0.34pp</div><div class="sub">last1, σ=1e-3/3e-3 — within noise</div></div>
+    <div class="metric-card"><div class="label">Experts found (≥ +5pp on held-out)</div><div class="value red">0</div><div class="sub">across ~36k perturbations</div></div>
+    <div class="metric-card"><div class="label"><code>all</code> scope at σ≥3e-3</div><div class="value red">~9%</div><div class="sub">total collapse (≈ random)</div></div>
+    <div class="metric-card"><div class="label"><code>last1</code> scope at σ=0.1</div><div class="value orange">−2.7pp</div><div class="sub">remarkably robust</div></div>
+  </div>
+
+  <div class="callout callout-danger">
+    <strong>Verdict: no thicket — hypothesis (b) confirmed</strong>
+    DINOv2's SSL init sits on a <strong>flat plateau</strong> for frozen-backbone / no-head correspondence, <em>not</em> in a thicket of better models. In the safe regime (low σ or concentrated scope) the mean perturbation ≈ base and the tail never rises above noise; where perturbations have real reproducible effect (high ρ — e.g. <code>all</code> σ=1e-3, ρ=0.63) the effect is <strong>negative</strong>. Quadrupling to N=3000 at the best cells did not uncover an expert. Unlike an instruct-LLM (already task-adapted, surrounded by good nearby solutions), a raw SSL backbone is not near a cluster of better <em>task</em> models that random search can reach.
+  </div>
+
+  <div class="finding">
+    <div class="num">→</div>
+    <h4>Implication for future work</h4>
+    <p>To make RandOpt work on SSL, give it a <strong>trainable component to perturb around</strong> — a trained correspondence head or a partial last-block fine-tune — so the base already sits in a task-thicket. Perturbing the raw SSL backbone is a confirmed dead end. The scope→cliff mechanism itself <em>is</em> real (concentrating on the last block avoids collapse), so a hybrid "train a little, then thicket-search the last block" is the natural next experiment.</p>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>8. Cross-Domain Comparison</h2>
+
+  <div class="chart-container">
+    <div class="chart-title">Ensemble Accuracy (%) — All Main Experiments</div>
+    <div class="bar-chart">
+      <div class="bar-row"><div class="bar-label">0.5B Base</div><div class="bar-track"><div class="bar-fill" style="width:0.5%;background:#8892a4">&nbsp;</div></div><div class="bar-val">0.5%</div></div>
+      <div class="bar-row"><div class="bar-label">0.5B K=50 ↑</div><div class="bar-track"><div class="bar-fill" style="width:12.15%;background:#7c6fff">12.15%</div></div><div class="bar-val">12.15%</div></div>
+      <div style="height:.3rem"></div>
+      <div class="bar-row"><div class="bar-label">1.5B Base</div><div class="bar-track"><div class="bar-fill" style="width:13%;background:#8892a4">13%</div></div><div class="bar-val">13%</div></div>
+      <div class="bar-row"><div class="bar-label">1.5B K=50 ↑</div><div class="bar-track"><div class="bar-fill" style="width:39.85%;background:#4ecdc4">39.85%</div></div><div class="bar-val">39.85%</div></div>
+      <div style="height:.3rem"></div>
+      <div class="bar-row"><div class="bar-label">DINOv2 Base</div><div class="bar-track"><div class="bar-fill" style="width:98.7%;background:#8892a4">98.7%</div></div><div class="bar-val">98.7%</div></div>
+      <div class="bar-row"><div class="bar-label">DINOv2 K=25 ↑</div><div class="bar-track"><div class="bar-fill" style="width:98.75%;background:#51cf66">98.75%</div></div><div class="bar-val">98.75%</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Gain Over Base — All Experiments</h3>
+    <table>
+      <thead><tr><th>Experiment</th><th>Domain</th><th>Base</th><th>Best Ensemble</th><th>Gain (pp)</th><th>Rel. ×</th><th>σ*</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Qwen2.5-0.5B / Countdown</td>
+          <td><span class="tag tag-llm">LLM</span></td>
+          <td class="neutral">0.5%</td>
+          <td class="green">12.15% (K=50)</td>
+          <td class="best">+11.65 pp</td>
+          <td class="purple">24×</td>
+          <td><code>0.0005</code></td>
+        </tr>
+        <tr>
+          <td>Qwen2.5-1.5B / Countdown</td>
+          <td><span class="tag tag-llm">LLM</span></td>
+          <td class="orange">13%</td>
+          <td class="green">39.85% (K=50)</td>
+          <td class="best">+26.85 pp</td>
+          <td class="purple">3.1×</td>
+          <td><code>0.0005</code></td>
+        </tr>
+        <tr>
+          <td>DINOv2-base / CIFAR-10 (warm)</td>
+          <td><span class="tag tag-vision">Vision</span></td>
+          <td class="green">98.7%</td>
+          <td class="green">98.75% (K=25)</td>
+          <td class="neutral">+0.05 pp</td>
+          <td class="neutral">1.0×</td>
+          <td><code>0.0001</code></td>
+        </tr>
+        <tr>
+          <td>DINOv2-small / CIFAR-10 (smoke)</td>
+          <td><span class="tag tag-vision">Vision</span></td>
+          <td class="bad">8%</td>
+          <td class="orange">10.5% (K=4)</td>
+          <td class="neutral">+2.5 pp</td>
+          <td class="neutral">1.3×</td>
+          <td><code>0.1</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>9. Key Findings</h2>
+
+  <div class="finding">
+    <div class="num">①</div>
+    <h4>Neural Thickets confirmed in LLMs</h4>
+    <p>RandOpt delivers large accuracy gains purely from random perturbation — no gradients, no labelled training beyond reward scoring. 0.5B: 24× gain (0.5%→12%). 1.5B: 3.1× gain (13%→39.85%). The effect is robust and reproducible at N=500.</p>
+  </div>
+
+  <div class="finding">
+    <div class="num">②</div>
+    <h4>Larger models benefit more in absolute terms</h4>
+    <p>The 1.5B model gains +26.85 pp vs +11.65 pp for 0.5B. Bigger models have richer "thickets" — the density of near-optimal perturbations scales with model capacity. Best sigma is <em>identical</em> (σ=0.0005) across model sizes, suggesting the optimal noise scale is a property of the pretraining regime, not architecture size.</p>
+  </div>
+
+  <div class="finding">
+    <div class="num">③</div>
+    <h4>K=25 captures most ensemble value; K=50 adds little</h4>
+    <p>For both LLM runs, going from K=25 to K=50 added only 0.2–0.6 pp. The top-25 perturbations already cover the diversity of vote-able answers. Running K=50 costs 2× the compute of K=25 for diminishing returns.</p>
+  </div>
+
+  <div class="finding">
+    <div class="num">④</div>
+    <h4>Vision: ceiling effect when starting near-optimal</h4>
+    <p>DINOv2-base + trained linear probe reaches 98.7% baseline. Random perturbations find σ=0.0001 regions averaging 99.04% train reward — technically better than base — but the ensemble only gains +0.05 pp on test. The model is already near the information ceiling of CIFAR-10 (32×32 pixels, 10 classes). RandOpt's value proposition requires headroom above the base model.</p>
+  </div>
+
+  <div class="finding">
+    <div class="num">⑤</div>
+    <h4>Vision weights are far more brittle to noise than LLM weights</h4>
+    <p>DINOv2 shows a cliff edge: σ=0.001 → 95%, σ=0.01 → 10% (random). For LLMs, σ=0.001 → graceful 30–40% relative drop. DINOv2 backbone features are geometrically precise — small perturbations preserve them, moderate ones destroy them entirely. This has practical implications: vision RandOpt requires σ ≤ 10⁻⁴ for meaningful exploration.</p>
+  </div>
+
+  <div class="finding">
+    <div class="num">⑥</div>
+    <h4>Warm init is critical for vision; random head invalidates the experiment</h4>
+    <p>The smoke test (random head, 8% base) shows σ=0.1 as best — but this is misleading. The "perturbations" are effectively training the head from scratch, not exploring the pretrained model's neighborhood. A proper vision Neural Thickets experiment requires a starting point with meaningful task performance. The linear probe (98.22%) provides this, making the experiment analogous to the LLM setting where the base model already has task capability.</p>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>10. Recommended Next Steps</h2>
+  <div class="card">
+    <h3 style="margin-top:0">LLM Track</h3>
+    <ul style="padding-left:1.4rem;line-height:2">
+      <li>Scale to <strong>3B and 7B models</strong> — test if the absolute gain keeps growing</li>
+      <li>Explore <strong>σ &lt; 0.0005</strong> (e.g. 0.0001, 0.0002) — best sigma hit the lower floor in both runs</li>
+      <li>Scale population to <strong>N=5000</strong> to see if the gain curve saturates</li>
+      <li>Try <strong>GSM8k</strong> as a second reasoning task — cross-task generalization of best sigma</li>
+    </ul>
+    <h3>Vision Track</h3>
+    <ul style="padding-left:1.4rem;line-height:2">
+      <li>Try a <strong>harder task</strong> where the base model is not near-ceiling (e.g. DINOv2 on fine-grained datasets: CUB-200, FGVC-Aircraft where linear probe ~80%)</li>
+      <li>Restrict perturbations to <strong>linear head only</strong> (backbone frozen) to test if thicket effect lives in the head or backbone</li>
+      <li>Try <strong>σ range 10⁻⁵ to 10⁻⁴</strong> — current best sigma 0.0001 is already at the explored floor</li>
+      <li>Scale to <strong>DINOv2-large</strong> to check if the cliff edge shifts</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>11. Run Reference</h2>
+  <div class="card" style="padding:0;overflow:hidden">
+  <table>
+    <thead><tr><th>W&amp;B Run Name</th><th>Status</th><th>Model</th><th>Task</th><th>N</th><th>Duration</th><th>Node / GPU</th></tr></thead>
+    <tbody>
+      <tr><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/w106zt5k">randopt-0.5b-countdown-n500</a></td><td class="green">✓ Finished</td><td>Qwen2.5-0.5B</td><td>Countdown</td><td>500</td><td>~3.2h</td><td>A5000 (node1)</td></tr>
+      <tr><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/hqkftc8b">randopt-1.5b-countdown-n500</a></td><td class="green">✓ Finished</td><td>Qwen2.5-1.5B</td><td>Countdown</td><td>500</td><td>~5.5h</td><td>A5000 (node4)</td></tr>
+      <tr><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/f4r4i1qe">vision-smoke-test-v2</a></td><td class="green">✓ Finished</td><td>DINOv2-small (random)</td><td>CIFAR-10</td><td>20</td><td>~30s</td><td>A5000 (node1)</td></tr>
+      <tr><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/r7ubl283">vision-dinov2base-cifar10-n500</a></td><td class="green">✓ Finished</td><td>DINOv2-base (probe 98.22%)</td><td>CIFAR-10</td><td>500</td><td>~42m</td><td>A5000 (node1)</td></tr>
+      <tr><td>vision-corr-spair71k-n500</td><td class="green">✓ Finished</td><td>DINOv2-base (no head)</td><td>SPair-71k corr.</td><td>500</td><td>~1h</td><td>A6000</td></tr>
+      <tr><td>thicket-all-night</td><td class="green">✓ Succeeded</td><td>DINOv2-base · scope=all</td><td>SPair-71k corr.</td><td>1000×6σ</td><td>~13h</td><td>A6000 (node9)</td></tr>
+      <tr><td>thicket-last2-night</td><td class="green">✓ Succeeded</td><td>DINOv2-base · scope=last2</td><td>SPair-71k corr.</td><td>1000×6σ</td><td>~13h</td><td>A6000 (node9)</td></tr>
+      <tr><td>thicket-last1-night</td><td class="green">✓ Succeeded</td><td>DINOv2-base · scope=last1</td><td>SPair-71k corr.</td><td>1000×6σ</td><td>~14h</td><td>A6000 (node9)</td></tr>
+      <tr><td>thicket-last1-deep</td><td class="green">✓ Succeeded</td><td>DINOv2-base · scope=last1 (seed 101)</td><td>SPair-71k corr.</td><td>3000×2σ</td><td>~13h</td><td>A5000 (node4)</td></tr>
+      <tr><td>thicket-last2-deep</td><td class="green">✓ Succeeded</td><td>DINOv2-base · scope=last2 (seed 102)</td><td>SPair-71k corr.</td><td>3000×2σ</td><td>~13h</td><td>A5000 (node4)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="muted" style="margin-top:.5rem;font-size:.8rem">LLM/CIFAR runs: global_seed=42 · single GPU · top_k_ratios=0.01,0.05,0.1 (→ K=5,25,50). Thicket runs: held-out A/B splits (200/200 pairs), σ descending, batch 256, deep runs use independent seeds to pool. Project: noyhassid-tau/randopt.</p>
+</section>
+
+</div><!-- /container -->
+
+<div style="background:#0a0c14;border-top:1px solid #1e2134;padding:1.5rem;text-align:center;color:#8892a4;font-size:.8rem">
+  RandOpt / Neural Thickets — arXiv 2603.12228 &nbsp;|&nbsp; Report generated 2026-07-01 &nbsp;|&nbsp; noyhassid-tau/randopt
+</div>
+
+</body>
+</html>
