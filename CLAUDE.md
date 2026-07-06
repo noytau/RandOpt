@@ -98,6 +98,7 @@ Branch `feature/vision-randopt`. These apply RandOpt beyond LLMs, reusing the `D
 | `randopt_vision.py` | DINOv2 + linear head **classification** (CIFAR-10, CUB-200, FGVC-Aircraft). Perturb backbone+head, ensemble by majority vote. |
 | `randopt_correspondence.py` | DINOv2 **semantic correspondence** on SPair-71k. **No head** — reward = PCK@0.1 from cosine similarity of patch embeddings. Ensemble by averaging (N,256,256) similarity matrices then argmax. |
 | `scripts/randopt_corr_thicket.py` | **Thicket-existence study**: scope×σ scan, each perturbation scored on two disjoint held-out splits A/B, reports unbiased "one-expert" gain + Spearman ρ(A,B). No selection/ensemble. |
+| `scripts/grad_reachability.py` | **Gradient-reachability control (plateau vs needle)**: gradient ascent on a differentiable PCK surrogate (soft-argmax / InfoNCE) under the same scope/eval/A-B protocol as the thicket sweep; logs ‖Δw‖ as equivalent-σ. Distinguishes "no better model nearby" from "better models exist but isotropic sampling can't find them". Run via `scripts/run_grad_reachability.sh`. |
 | `scripts/count_params.py` | CPU param inventory (per-block counts, validates `last_n_blocks` scope filter). |
 
 ### VisionEngine (`vision/engine.py`)
