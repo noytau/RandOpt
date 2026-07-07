@@ -25,11 +25,12 @@ NB="${NB:-200}"
 BATCH="${BATCH:-64}"
 SEED="${SEED:-42}"
 RUNNAME="${RUNNAME:-thicket-spair71k-v1}"
+MODEL="${MODEL:-facebook/dinov2-base}"
 
 # -u = unbuffered stdout so logs stream live through tee
 python3 -u scripts/randopt_corr_thicket.py \
     --dataset spair71k \
-    --model_name facebook/dinov2-base \
+    --model_name "$MODEL" \
     --nA "$NA" --nB "$NB" \
     --population_size "$NPOP" \
     --sigma_values "$SIGMAS" \
