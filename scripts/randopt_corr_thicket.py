@@ -158,6 +158,12 @@ def main(args):
                 "one_expert_B": one_expert_B,
                 "one_expert_gain": one_expert_B - base_B,
                 "rho_AB": rho,
+                # raw per-perturbation scores + seeds: lets sharded jobs (different
+                # SEED, same splits) be POOLED to a larger effective N with the
+                # one-expert stat recomputed honestly on the pooled draws.
+                "seeds": [int(s) for s in seeds],
+                "pcks_A": [float(v) for v in aA],
+                "pcks_B": [float(v) for v in aB],
             }
             table.append(cell)
             print(f"  sigma={sigma:<8} base_B={base_B*100:5.2f}  "
