@@ -8,6 +8,18 @@ RandOpt implements **Neural Thickets** (paper: arxiv 2603.12228): instead of gra
 
 **Vision / SSL extension (branch `feature/vision-randopt`):** The same algorithm applied to DINOv2 — classification (CIFAR-10, CUB-200, FGVC-Aircraft) and semantic correspondence (SPair-71k, no head). See [`VISION.md`](VISION.md) and the **Vision & SSL Correspondence Experiments** section below. Headline finding: RandOpt does **not** transfer to DINOv2's SSL init — the reachable weight neighborhood is a flat plateau, not a thicket of better models (see findings below).
 
+## Working Agreement (read first — set by the user 2026-07-08)
+
+1. **Code approval gate:** every NEW function added to this project must be shown to and approved by the user BEFORE it is committed. Present the function (signature + body + why it's needed), wait for explicit approval, then commit. Small mechanical edits to existing code (renames, param defaults, log lines) don't need a gate, but new functions/scripts always do.
+2. **The user is learning:** they have ML-engineering experience but are new to research practice. Explain research framings (baseline vs control, probe conventions, why a design choice exists) in plain language, define terms on first use, and be patient. The goal is for the user to learn, then drive the research themselves.
+3. **Always return to the base experiment.** Every result, plan, or new idea must be framed against the project's anchor comparison, on the same task/metric/splits:
+   | Rung | Method | Trains what |
+   |---|---|---|
+   | Baseline 1 | **Fine-tuning** the pretrained model (low LR) | backbone weights (gradient) |
+   | Baseline 2 | **Linear probe** (train a linear head, frozen backbone) | head only (gradient) |
+   | Contender | **RandOpt** (random perturbation + selection) | nothing (no gradients) |
+   The research question is always: *how close does training-free RandOpt come to the two standard SSL adaptation baselines?* (Current state: E2 is a *small/leashed* FT used as a control, not a full Baseline-1; a proper linear-probe rung on the correspondence task doesn't exist yet — both would need user approval to build.)
+
 ## Running Experiments
 
 **Local (no SLURM):**
