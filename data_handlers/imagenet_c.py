@@ -1,4 +1,4 @@
-"""ImageNet-C dataset handler for vision RandOpt (E6).
+"""ImageNet-C dataset handler for vision RandOpt (E1, experiments/E1_imagenet_c.md).
 
 ImageNet-C (Hendrycks & Dietterich 2019): the ImageNet-1k val set (50k images)
 with 15 corruption types x 5 severities applied, distributed as 224x224 JPEGs
@@ -10,15 +10,16 @@ requested corruption/severity subtree (~1GB of a 7-21GB tar).
 Directory layout after extraction:  <data_dir>/<corruption>/<severity>/<wnid>/*.JPEG
 
 Labels: class ids are assigned by sorted wnid order (0..999). For kNN-based
-E6 run 1 only internal consistency matters; this ordering also happens to
+the kNN rungs only internal consistency matters; this ordering also happens to
 match torchvision's ImageFolder convention and ImageNet's standard class
 index, which the future pretrained-head baseline (TASKS.md) will need.
 
-Splits (class-stratified, fixed seed, disjoint):
-  "adaptation"  adapt_per_class images/class (default 2  -> M=2,000)
-  "test"        test_per_class images/class  (default 5  -> 5,000)
-The E6 spec's optional A/B honesty splits are carved by the runner out of
-extra adaptation-phase data, not here (OFF in run 1).
+Splits (class-stratified, fixed seed, disjoint, contiguous ranges of the same
+per-class shuffle — E1 spec, user-approved):
+  "train"  train_per_class images/class (default 25 -> 25,000)
+  "val"    val_per_class images/class   (default 10 -> 10,000; hyperparameter
+           selection in larger experiments only — POCs never touch it)
+  "test"   test_per_class images/class  (default 15 -> 15,000; touched once)
 """
 import os
 from pathlib import Path
@@ -78,20 +79,21 @@ def _ensure_downloaded(data_dir: str, corruption: str, severity: int) -> str:
 
 
 class ImageNetCHandler(DatasetHandler):
-    """splits: 'adaptation' (RandOpt scoring + baseline training) / 'test'."""
+    """splits: 'train' / 'val' / 'test' (25/10/15 per class, E1 spec)."""
     name = "imagenet_c"
     default_train_path = "data/imagenet_c/gaussian_noise/3"
     default_test_path = "data/imagenet_c/gaussian_noise/3"
     default_max_tokens = 0
 
-    adapt_per_class = 2   # M = 2,000 over 1000 classes (E6 spec default)
-    test_per_class = 5    # test = 5,000
+    train_per_class = 25
+    val_per_class = 10
+    test_per_class = 15
     split_seed = 42
 
     def load_data(
         self,
         path: str,
-        split: str = "adaptation",
+        split: str = "train",
         max_samples: Optional[int] = None,
         start_index: int = 0,
     ) -> List[Dict]:
@@ -102,8 +104,17 @@ class ImageNetCHandler(DatasetHandler):
         corruption, severity = p.parts[-2], int(p.parts[-1])
         sev_dir = Path(_ensure_downloaded(str(p.parents[1]), corruption, severity))
 
-        if split not in ("adaptation", "test"):
-            raise ValueError(f"split must be 'adaptation' or 'test', got '{split}'")
+        bounds = {
+            "train": (0, self.train_per_class),
+            "val": (self.train_per_class,
+                    self.train_per_class + self.val_per_class),
+            "test": (self.train_per_class + self.val_per_class,
+                     self.train_per_class + self.val_per_class
+                     + self.test_per_class),
+        }
+        if split not in bounds:
+            raise ValueError(f"split must be one of {sorted(bounds)}, got '{split}'")
+        lo, hi = bounds[split]
 
         rng = np.random.default_rng(self.split_seed)
         items = []
@@ -111,11 +122,7 @@ class ImageNetCHandler(DatasetHandler):
             files = sorted(f for f in wnid_dir.iterdir() if f.suffix.lower()
                            in (".jpeg", ".jpg", ".png"))
             order = rng.permutation(len(files))
-            if split == "adaptation":
-                picks = order[:self.adapt_per_class]
-            else:
-                picks = order[self.adapt_per_class:
-                              self.adapt_per_class + self.test_per_class]
+            picks = order[lo:hi]
             for i in picks:
                 img = Image.open(files[i]).convert("RGB")
                 items.append({

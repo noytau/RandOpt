@@ -271,6 +271,30 @@ class VisionEngine:
             results.append({"knn_top1": top1, "map": float(ap.mean())})
         return results
 
+    def knn_predict(self, gallery_imgs, gallery_labels, query_imgs,
+                    k: int = 20, tau: float = 0.07):
+        """Per-query kNN predicted class ids (same weighted vote as eval_global).
+
+        eval_global returns only aggregate accuracy; the majority-vote ensemble
+        (E6) needs each perturbed model's per-query label to vote across models.
+
+        Args:
+            gallery_imgs: (G,3,H,W) float32 in [0,1]
+            gallery_labels: length-G list of int class ids
+            query_imgs: (Q,3,H,W) float32 in [0,1]
+        Returns:
+            length-Q list of int predicted class ids.
+        """
+        g = self._cls_features_gpu(gallery_imgs)                       # (G, D)
+        gl = torch.tensor(gallery_labels, device=self.device)
+        q = self._cls_features_gpu(query_imgs)                         # (Q, D)
+        sim = q @ g.T                                                  # (Q, G)
+        topv, topi = sim.topk(min(k, sim.shape[1]), dim=1)
+        w = (topv / tau).exp()
+        votes = torch.zeros(len(q), int(gl.max()) + 1, device=self.device)
+        votes.scatter_add_(1, gl[topi], w)
+        return votes.argmax(dim=1).cpu().tolist()
+
     def get_embed_dim(self) -> int:
         return self.backbone.config.hidden_size
 
