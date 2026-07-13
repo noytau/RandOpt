@@ -1,10 +1,6 @@
 """Dataset handlers registry."""
 from .base import DatasetHandler
-from .cifar10 import CIFAR10Handler
-from .cub200 import CUB200Handler
-from .fgvc_aircraft import FGVCAircraftHandler
 from .imagenet_c import ImageNetCHandler
-from .spair71k import SPair71kHandler
 from .countdown import CountdownHandler
 from .gqa import GQAHandler
 from .gsm8k import GSM8KHandler
@@ -27,10 +23,6 @@ DATASET_HANDLERS = {
     "uspto50k": USPTO50KHandler,
     "rocstories": ROCStoriesHandler,
     "gqa": GQAHandler,
-    "cifar10": CIFAR10Handler,
-    "cub200": CUB200Handler,
-    "fgvc_aircraft": FGVCAircraftHandler,
-    "spair71k": SPair71kHandler,
     "imagenet_c": ImageNetCHandler,
 }
 
