@@ -59,23 +59,38 @@ def preprocess(batch, mean, std):
 
 
 def find_max_batch(model, head, mean, std, device, start: int) -> int:
-    """Halve the batch size until one fwd+bwd step fits in memory."""
+    """Halve the batch size until fwd+bwd AND an optimizer step fit in memory.
+
+    The AdamW step matters: its state buffers (2x params fp32, ~9GB for giant)
+    are lazily allocated on the first step() — probing fwd+bwd alone reported
+    "fits" and then training OOMed (bitten 2026-07-14). lr=0 keeps the probe
+    step a no-op on the weights.
+    """
     if not torch.cuda.is_available():
         return min(start, 16)  # CPU dry-run
+    params = list(model.parameters()) + list(head.parameters())
     bs = start
     while bs >= 4:
+        opt_probe = None
         try:
             x = torch.rand(bs, 3, 224, 224, device=device)
+            opt_probe = torch.optim.AdamW(params, lr=0.0)
             with amp():
                 out = model(pixel_values=preprocess(x, mean, std))
                 loss = head(out.pooler_output).float().mean()
             loss.backward()
-            model.zero_grad(set_to_none=True)
-            head.zero_grad(set_to_none=True)
+            opt_probe.step()  # materializes AdamW state at full size
+            opt_probe.zero_grad(set_to_none=True)
+            del opt_probe
             torch.cuda.empty_cache()
-            print(f"[batch-probe] batch={bs} fits")
+            print(f"[batch-probe] batch={bs} fits (incl. AdamW state)")
             return bs
         except torch.cuda.OutOfMemoryError:
+            if opt_probe is not None:
+                opt_probe.zero_grad(set_to_none=True)
+                del opt_probe
+            model.zero_grad(set_to_none=True)
+            head.zero_grad(set_to_none=True)
             torch.cuda.empty_cache()
             print(f"[batch-probe] batch={bs} OOM -> halving")
             bs //= 2

@@ -13,6 +13,7 @@ fi
 pip install transformers torchvision Pillow --quiet
 
 export HF_HOME=/storage/noy/.cache/huggingface
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True  # anti-fragmentation (big FT runs)
 export WANDB_API_KEY=$(cat /storage/noy/.wandb_api_key)
 mkdir -p results
 
