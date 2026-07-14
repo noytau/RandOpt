@@ -38,6 +38,7 @@ def train_head(train_x, train_y, lr: float, epochs: int, batch_size: int,
     x = train_x.float().to(device)
     y = train_y.to(device)
     n = len(y)
+    batch_size = batch_size or n  # 0 -> full-batch
     for ep in range(epochs):
         perm = torch.randperm(n, device=device)
         total = 0.0
@@ -70,7 +71,8 @@ def parse_args():
     p.add_argument("--severity", type=int, default=3)
     p.add_argument("--lr", type=float, default=1e-3, help="POC fixed LR")
     p.add_argument("--epochs", type=int, default=20)
-    p.add_argument("--train_batch", type=int, default=1024)
+    p.add_argument("--train_batch", type=int, default=0,
+                   help="0 = full-batch (all train features in one step)")
     p.add_argument("--sweep_lr", default="",
                    help="comma list; if set, select LR on VAL then test once")
     p.add_argument("--batch_size", type=int, default=64, help="feature extraction")
