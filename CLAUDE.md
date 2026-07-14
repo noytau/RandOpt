@@ -208,6 +208,7 @@ bash scripts/submit_wandb_test.sh
 
 ### Node / GPU notes
 
+- **PVC access:** `/storage` (code, data, results on the cluster) is reachable **only from inside RunAI jobs** — not from the gateway (Geoffry) and not from the Mac. When asked to query job state or results, **try `runai` first** (`runai list jobs -p raja`, `runai logs <job>` — via `ssh Geoffry` since the Mac's token is separate). If the token is expired, the fallback readout is the **W&B API** (`~/.netrc` credentials exist on both Mac and Geoffry); `results/*.json` on the PVC stays unreachable until re-login.
 - **H100 (node8)** is fastest but frequently grabbed by another queue → jobs pend. For small jobs (e.g. DINOv2-base), **drop `--node-type`** and take any free GPU; **node7 (RTX-6000 Ada)** is the fastest freely-available one. A5000 nodes (1,3,4,5,6) and A6000 (node2, node9) work fine. **node10 is usually Unschedulable.**
 - On Mac CLI: use `-g 1` not `--gpu 1`.
 - Use `runai list jobs -p raja` to list/check jobs (the `runai workload list` form is not available on this gateway; `runai describe job <name> -p raja` for status).
