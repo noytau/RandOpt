@@ -58,7 +58,8 @@ def preprocess(batch, mean, std):
     return (batch - mean) / std
 
 
-def find_max_batch(model, head, mean, std, device, start: int) -> int:
+def find_max_batch(model, head, mean, std, device, start: int,
+                   params=None) -> int:
     """Halve the batch size until fwd+bwd AND an optimizer step fit in memory.
 
     The AdamW step matters: its state buffers (2x params fp32, ~9GB for giant)
@@ -68,7 +69,8 @@ def find_max_batch(model, head, mean, std, device, start: int) -> int:
     """
     if not torch.cuda.is_available():
         return min(start, 16)  # CPU dry-run
-    params = list(model.parameters()) + list(head.parameters())
+    if params is None:
+        params = list(model.parameters()) + list(head.parameters())
     bs = start
     while bs >= 4:
         opt_probe = None
@@ -130,6 +132,8 @@ def parse_args():
     p.add_argument("--head_init", default=None,
                    help="probe head .pt (default results/e1-probe-<corr>-s<sev>/head.pt)")
     p.add_argument("--lr", type=float, default=1e-5)
+    p.add_argument("--last_n_blocks", type=int, default=0,
+                   help="train only the last N transformer blocks + head (0 = full model)")
     p.add_argument("--epochs", type=int, default=2)
     p.add_argument("--batch_size", type=int, default=64,
                    help="starting point for the max-batch OOM backoff")
@@ -168,17 +172,28 @@ def main(args):
     mean = torch.tensor(_NORM_MEAN, device=device).view(1, 3, 1, 1)
     std = torch.tensor(_NORM_STD, device=device).view(1, 3, 1, 1)
     base = {n: p.detach().clone() for n, p in model.named_parameters()}
-    d_scope = sum(p.numel() for p in model.parameters()) \
-        + sum(p.numel() for p in head.parameters())
+
+    if args.last_n_blocks > 0:
+        n_layers = model.config.num_hidden_layers
+        keep = tuple(f"encoder.layer.{i}."
+                     for i in range(n_layers - args.last_n_blocks, n_layers))
+        for name, prm in model.named_parameters():
+            prm.requires_grad_(name.startswith(keep))
+        scope_desc = f"last {args.last_n_blocks} blocks + head"
+    else:
+        scope_desc = "full model + head"
+    trainable = [p for p in model.parameters() if p.requires_grad] \
+        + list(head.parameters())
+    d_scope = sum(p.numel() for p in trainable)
 
     model.train()
-    bs = find_max_batch(model, head, mean, std, device, args.batch_size)
+    bs = find_max_batch(model, head, mean, std, device, args.batch_size,
+                        trainable)
     steps_total = math.ceil(len(train_y) / bs) * args.epochs
-    opt = torch.optim.AdamW(list(model.parameters()) + list(head.parameters()),
-                            lr=args.lr)
+    opt = torch.optim.AdamW(trainable, lr=args.lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=steps_total)
     loss_fn = nn.CrossEntropyLoss()
-    print(f"full-model FT: {d_scope:,} trainable params, batch={bs}, "
+    print(f"FT scope: {scope_desc} = {d_scope:,} trainable params, batch={bs}, "
           f"{steps_total} steps, lr={args.lr} cosine")
 
     step, t0 = 0, time.time()
