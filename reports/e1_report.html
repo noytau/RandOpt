@@ -1,0 +1,242 @@
+<title>E1 — ImageNet-C Benchmarks (DINOv2-giant)</title>
+<style>
+  :root {
+    --paper: #F7F8F6; --ink: #16181D; --muted: #626A66; --line: #D8DDD8;
+    --accent: #2F7D6D; --accent-soft: #E4EFEA; --warn: #A64F28; --warn-soft: #F4E6DD;
+    --code-bg: #EDF0ED; --card: #FFFFFF;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #14161A; --ink: #E6E9E4; --muted: #969E98; --line: #2E333A;
+      --accent: #5BB39F; --accent-soft: #1C2B27; --warn: #D08055; --warn-soft: #2E211A;
+      --code-bg: #1C2025; --card: #191C21;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #14161A; --ink: #E6E9E4; --muted: #969E98; --line: #2E333A;
+    --accent: #5BB39F; --accent-soft: #1C2B27; --warn: #D08055; --warn-soft: #2E211A;
+    --code-bg: #1C2025; --card: #191C21;
+  }
+  :root[data-theme="light"] {
+    --paper: #F7F8F6; --ink: #16181D; --muted: #626A66; --line: #D8DDD8;
+    --accent: #2F7D6D; --accent-soft: #E4EFEA; --warn: #A64F28; --warn-soft: #F4E6DD;
+    --code-bg: #EDF0ED; --card: #FFFFFF;
+  }
+  html { background: var(--paper); }
+  body {
+    margin: 0; padding: 0 20px 80px; color: var(--ink);
+    font: 17px/1.65 Georgia, 'Times New Roman', serif;
+  }
+  main { max-width: 76ch; margin: 0 auto; }
+  h1, h2, h3, .eyebrow, th, .tag {
+    font-family: -apple-system, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  }
+  h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .4rem; letter-spacing: -0.015em; text-wrap: balance; }
+  h2 { font-size: 1.22rem; margin: 3rem 0 .8rem; padding-top: 1.6rem; border-top: 1px solid var(--line); }
+  h3 { font-size: 1rem; margin: 1.4rem 0 .5rem; }
+  .eyebrow {
+    display: block; font-size: .72rem; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); font-weight: 600; margin: 4rem 0 .3rem;
+  }
+  header .eyebrow { margin-top: 3rem; }
+  .subtitle { color: var(--muted); margin: 0 0 .3rem; }
+  .meta { font-size: .85rem; color: var(--muted); font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+  .verdict {
+    background: var(--accent-soft); border-left: 3px solid var(--accent);
+    padding: 1rem 1.2rem; margin: 1.8rem 0; border-radius: 0 4px 4px 0;
+  }
+  .verdict strong { color: var(--accent); }
+  p { margin: .7rem 0; }
+  code, pre {
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: .82em;
+  }
+  code { background: var(--code-bg); padding: .1em .35em; border-radius: 3px; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: .9rem 1.1rem; overflow-x: auto; line-height: 1.55; margin: 1rem 0;
+  }
+  pre code { background: none; padding: 0; }
+  .tablewrap { overflow-x: auto; margin: 1rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  th {
+    text-align: left; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; padding: .45rem .7rem .45rem 0;
+    border-bottom: 2px solid var(--line); white-space: nowrap;
+  }
+  td {
+    padding: .5rem .7rem .5rem 0; border-bottom: 1px solid var(--line);
+    font-variant-numeric: tabular-nums; vertical-align: top;
+  }
+  td.num { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: .84rem; white-space: nowrap; }
+  .pos { color: var(--accent); font-weight: 600; }
+  .neg { color: var(--warn); font-weight: 600; }
+  .collapse-row td { background: var(--warn-soft); }
+  .tag {
+    display: inline-block; font-size: .7rem; font-weight: 600; letter-spacing: .05em;
+    padding: .1em .55em; border-radius: 10px; border: 1px solid var(--line); color: var(--muted);
+    white-space: nowrap;
+  }
+  .tag.ok { color: var(--accent); border-color: var(--accent); }
+  .tag.bad { color: var(--warn); border-color: var(--warn); }
+  dl.params { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1.2rem; margin: .8rem 0; font-size: .92rem; }
+  dl.params dt { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: .8rem; color: var(--muted); }
+  dl.params dd { margin: 0; }
+  ol.search { padding-left: 1.3rem; }
+  ol.search li { margin: .8rem 0; }
+  footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--line); font-size: .82rem; color: var(--muted); }
+  footer code { font-size: .78rem; }
+  a { color: var(--accent); }
+</style>
+
+<main>
+<header>
+  <span class="eyebrow">RandOpt · SSL Vision · Experiment E1</span>
+  <h1>Image Classification on ImageNet-C: kNN / Linear Probe / Finetune / RandOpt</h1>
+  <p class="subtitle">Four adaptation rungs on corrupted ImageNet, same splits, same metric — how close does training-free RandOpt come to gradient baselines?</p>
+  <p class="meta">DINOv2-giant 1.136B · ImageNet-C severity 3 · splits 25/10/15 per class · test = 15,000 images (±0.4pp SE) · 2026-07-13 → 07-15 · W&amp;B project <code>randopt</code>, runs <code>e1-*</code></p>
+</header>
+
+<div class="verdict">
+  <p><strong>Headline finding so far.</strong> Full-model finetuning moved the weights a distance equivalent to <strong>σ ≈ 2.3×10⁻⁴</strong> and gained <strong>+2.24pp</strong>. RandOpt sampled 100 random directions at exactly those radii (σ = 1e-4 and 3e-4) and its best ensemble gained <strong>+0.03pp</strong>. Better models exist at the searched radii — random isotropic sampling doesn't find them. At N=100 this is a needle, not a thicket, on a task with 24pp of headroom. (Paper-scale N is the remaining test: N=100 is 50× below the paper's 5,000.)</p>
+</div>
+
+<h2>Dataset — ImageNet-C</h2>
+<p>ImageNet-C (Hendrycks &amp; Dietterich 2019) applies <strong>15 corruption types × 5 severity levels</strong> to the ImageNet-1k validation set (50,000 images = 1,000 classes × exactly 50 per class). Each (corruption, severity) pair is therefore a complete 50k copy of the set, shipped as 224×224 JPEGs — DINOv2's native input size. Canonical ImageNet-C usage is <em>evaluation-only</em> (train on clean ImageNet, test on corruptions), so no standard train/val/test split of it exists; our supervised-adaptation setting defines its own. Every experiment adapts to <strong>one (corruption, severity) pair at a time</strong> — mixing corruptions in one adaptation would ask a different (harder) question and would pool 15 distortions of the <em>same</em> underlying photos.</p>
+
+<h3>Corruption families &amp; what E1 uses</h3>
+<p>Zenodo (record 2235448) packages the dataset as one tarball per corruption <em>family</em>. E1 uses one representative per family, all at <strong>severity 3</strong> (mid-range: clearly degraded, far from floor):</p>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Family tar</th><th>Size</th><th>Corruptions inside</th><th>E1 uses</th><th>Coverage so far</th></tr></thead>
+  <tbody>
+    <tr><td><code>noise.tar</code></td><td class="num">22.5 GB</td><td>gaussian_noise, shot_noise, impulse_noise</td><td><strong>gaussian_noise</strong></td><td>all four methods</td></tr>
+    <tr><td><code>blur.tar</code></td><td class="num">7.9 GB</td><td>defocus, glass, <strong>motion_blur</strong>, zoom</td><td><strong>motion_blur</strong></td><td>kNN + probe</td></tr>
+    <tr><td><code>weather.tar</code></td><td class="num">12.9 GB</td><td>snow, frost, <strong>fog</strong>, brightness</td><td><strong>fog</strong></td><td>kNN + probe</td></tr>
+    <tr><td><code>digital.tar</code></td><td class="num">7.1 GB</td><td>contrast, elastic, pixelate, <strong>jpeg_compression</strong></td><td><strong>jpeg_compression</strong></td><td>kNN + probe</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Tars are kept on the PVC after extraction, so other severities or sibling corruptions become instant local extractions. Only the requested <code>&lt;corruption&gt;/&lt;severity&gt;</code> subtree (~1.6 GB) is unpacked; <code>extra.tar</code> (non-canonical corruptions) is never fetched.</p>
+
+<h3>Loading &amp; splits (<code>data_handlers/imagenet_c.py</code>)</h3>
+<p>The handler does two jobs. <code>_ensure_downloaded(data_dir, corruption, severity)</code> is the idempotent fetch: if <code>&lt;data_dir&gt;/&lt;corruption&gt;/&lt;severity&gt;/</code> already has files it returns immediately; otherwise it downloads the right family tar (<code>wget -c</code>, resumable) and extracts only the requested subtree. <code>load_data(path, split)</code> then builds the splits:</p>
+<pre><code># path encodes the cell:  data/imagenet_c/&lt;corruption&gt;/&lt;severity&gt;
+bounds = {"train": (0, 25), "val": (25, 35), "test": (35, 50)}   # per class
+rng = np.random.default_rng(split_seed=42)                # fixed seed
+for label, wnid_dir in enumerate(sorted(class_dirs)):     # 1000 classes,
+    order = rng.permutation(files_of(wnid_dir))           #   wnid-sorted labels
+    picks = order[lo:hi]                                  # contiguous slice
+    items += [{image_tensor, class_id=label} for i in picks]</code></pre>
+<p>Properties this construction guarantees: splits are <strong>class-stratified</strong> (exactly 25/10/15 from each class → 25k/10k/15k), <strong>disjoint by construction</strong> (contiguous, non-overlapping slices of one per-class shuffle), and <strong>deterministic</strong> (same seed → bit-identical membership across every job and method, so all four rungs see literally the same train/test images). Labels come from sorted-wnid order, which matches the standard ImageNet class index — internal consistency is all kNN needs, and a pretrained-head variant later gets correct labels for free. Val exists in every load but is <em>read</em> only by sweep-tier runs; POCs never touch it, and test is evaluated once per experiment. 15k test images put the binomial 1-SE at ±0.4pp near 75% accuracy — the noise floor all gains are judged against.</p>
+
+<h2>Common setup</h2>
+<p>Backbone: <code>facebook/dinov2-giant</code> — SSL-pretrained, no classification head; frozen-backbone embeddings are cached once per split (<code>vision/features.py</code>: one forward stores both the CLS token for kNN and the pooler output for the probe), which makes kNN sweeps and probe training near-free. All runs log to W&amp;B project <code>randopt</code> with the <code>e1-</code> prefix; per-run links in the summary table below.</p>
+
+<h2>1 · kNN — the base rung (training-free readout)</h2>
+<p><strong>What it tests:</strong> how well the frozen backbone's embeddings classify corrupted images by nearest neighbors. This number is the <em>base</em> every other method is measured against, and the run doubles as the headroom check.</p>
+<pre><code># gallery = train-split embeddings (frozen backbone, cached)
+g = normalize(cls_embeddings(train_images))        # (25000, 1536)
+q = normalize(cls_embeddings(query_images))        # val or test
+sim = q @ g.T
+topv, topi = sim.topk(k)                           # k nearest gallery items
+w = exp(topv / tau)                                # DINO-style weighted vote
+votes[c] = sum(w  where gallery_label == c)
+prediction = argmax(votes)</code></pre>
+<dl class="params">
+  <dt>k</dt><dd>POC fixed 20 (DINOv2 protocol) · sweep {1, 3, 5, 10, 20, 50, 100} chosen on val</dd>
+  <dt>tau</dt><dd>0.07 (vote temperature)</dd>
+  <dt>gallery</dt><dd>25,000 train embeddings (25/class)</dd>
+  <dt>trains</dt><dd>nothing</dd>
+</dl>
+<p><strong>Result:</strong> bases 75.0–77.4% across the four corruptions; accuracy is flat for k ≥ 10 (plateau spread ≤ 0.15pp), so the base is robust rather than tuned. All corruptions leave &gt;20pp headroom — every rung has room to show a gain.</p>
+
+<h2>2 · Linear probe — Baseline 2 (head-only gradients)</h2>
+<p><strong>What it tests:</strong> the cheapest gradient adaptation — a linear classifier trained on frozen features. Its trained head also seeds the finetune rung.</p>
+<pre><code>feats = pooler_features(train_images)              # cached — no backbone forwards
+head  = nn.Linear(1536, 1000)
+for epoch in range(20):
+    loss = CrossEntropy(head(feats), labels)
+    AdamW(lr).step()                               # lr selected on val in sweep
+test_top1 = accuracy(head(test_feats))</code></pre>
+<dl class="params">
+  <dt>optimizer</dt><dd>AdamW, CrossEntropy, 20 epochs</dd>
+  <dt>lr</dt><dd>POC fixed 1e-3 · sweep {3e-4, 1e-3, 3e-3} on val — <strong>1e-3 won on every corruption</strong> (3e-4 undertrains ~5pp)</dd>
+  <dt>batch</dt><dd>POC mini-batch 1024 · sweep full-batch (25k)</dd>
+  <dt>trains</dt><dd>head only: 1.54M params</dd>
+</dl>
+<p><strong>Result:</strong> +1.7 to +1.9pp over kNN on every corruption. <strong>Known caveat:</strong> full-batch = only 20 gradient steps, undertraining ~0.7pp vs the mini-batch POC (77.11 vs 77.78 on gaussian_noise) — a rerun with mini-batches (or more epochs) is pending a decision.</p>
+
+<h2>3 · Finetune — Baseline 1 (backbone gradients)</h2>
+<p><strong>What it tests:</strong> the strongest standard adaptation, at two scopes — full model (1.138B trainable) vs last-4 blocks + head (115M). Logs ‖Δw‖ converted to an <em>equivalent σ</em> (= ‖Δw‖/√d), making the gradient's travel distance directly comparable to RandOpt's sampling radius.</p>
+<pre><code>model = Dinov2Model(giant);  head.load(probe_head)   # warm head protects backbone
+trainable = last_n_blocks(model, N) + head           # N=0 → full model
+bs  = find_max_batch()                # OOM backoff, incl. AdamW state buffers
+opt = AdamW(trainable, lr=1e-5);  cosine_schedule(total_steps)
+for 2 epochs, bf16 autocast:
+    CrossEntropy(head(model(x)), y).backward();  opt.step()
+sigma_equiv = ||w − w₀|| / sqrt(d_trainable)</code></pre>
+<dl class="params">
+  <dt>lr</dt><dd>1e-5, cosine annealed to 0 (user-specified)</dd>
+  <dt>scope</dt><dd>full model (1.138B) · last-4 blocks + head (115M)</dd>
+  <dt>batch</dt><dd>auto-probed max: 32 (full) / 64 (last-4) on A6000-48GB, bf16</dd>
+  <dt>epochs</dt><dd>2 (1,564 / 782 steps)</dd>
+  <dt>head init</dt><dd>trained probe head (a random head would wreck the backbone early)</dd>
+</dl>
+<p><strong>Result (gaussian_noise):</strong> full model 77.81% (‖Δw‖ = 7.88, σ-eq 2.3e-4, 42 min) · last-4 blocks 77.78% (‖Δw‖ = 1.43, σ-eq 1.3e-4, 24 min). <strong>Fewer layers matched full FT at half the cost</strong> — the adaptation signal lives in the top of the network. The finetuned backbone's own kNN readout also improved (75.57 → 76.6), so the features moved, not just the head.</p>
+
+<h2>4 · RandOpt — the contender (no gradients)</h2>
+<p><strong>What it tests:</strong> the Neural-Thickets claim transplanted to SSL vision: are better task models densely packed around the pretrained weights, findable by random perturbation + selection? The σ-screen maps the noise-scale landscape and locates the collapse cliff.</p>
+<pre><code>for sigma in {1e-4, 3e-4, 1e-3, 3e-3}:               # one GPU job per cell
+    for seed in 100 seeds:
+        perturb(w += sigma · N(0,1, seed))            # all 1.136B params
+        score = knn_top1(gallery_1k, queries_1k)      # re-embedded per pert.
+        restore(w)                                    # bit-exact
+top_K = best_K_by_train_score(pooled)                 # K ∈ {1, 5}
+for m in top_K:
+    preds[m] = knn_predict(full_train_gallery, test)  # 25k gallery re-embedded
+ensemble = majority_vote(preds);  report accuracy(ensemble)</code></pre>
+<dl class="params">
+  <dt>scope</dt><dd><code>all</code> — every backbone parameter (1,136,482,305)</dd>
+  <dt>sigma</dt><dd>{1e-4, 3e-4, 1e-3, 3e-3}, N=100 per cell, seeds 201–204</dd>
+  <dt>selection</dt><dd>rank by kNN top-1 on 1k train queries vs 1k train gallery; top-K, K ∈ {1, 5}</dd>
+  <dt>honesty</dt><dd>selection touches only train; test evaluated once by the ensemble; single-perturbation maxima not quotable (split design queued for review with Nimrod)</dd>
+  <dt>cost</dt><dd>~78–106 s/perturbation; ~33 min per ensemble member; 5–7h per cell</dd>
+</dl>
+<p><strong>Result:</strong> ensembles gain +0.03 / −0.04 / −0.53 / −9.28pp at σ = 1e-4 / 3e-4 / 1e-3 / 3e-3. Mean scoring shift collapses from +0.14pp to <strong>−24.4pp</strong> between σ=1e-3 and 3e-3 — the collapse cliff for giant on this task sits in that interval.</p>
+
+<h2>Summary — all experiments</h2>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Experiment</th><th>Trains</th><th>Key hyperparams</th><th>Server · time</th><th>Status</th><th>Test top-1</th><th>Δ vs base</th><th>W&amp;B</th></tr></thead>
+  <tbody>
+    <tr><td>kNN POC (gaussian)</td><td>—</td><td>k=20 fixed, τ=0.07</td><td class="num">node9 · 34m</td><td><span class="tag ok">done</span></td><td class="num">75.57</td><td class="num">base</td><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/z4axwpeo">run</a></td></tr>
+    <tr><td>kNN sweep ×4</td><td>—</td><td>k on val {1…100}</td><td class="num">node9 ·≤72m</td><td><span class="tag ok">done</span></td><td class="num">75.01–77.41</td><td class="num">base ×4</td><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/yciqy0id">gn</a> · <a href="https://wandb.ai/noyhassid-tau/randopt/runs/r2dgl2db">mb</a> · <a href="https://wandb.ai/noyhassid-tau/randopt/runs/bzv171o5">fog</a> · <a href="https://wandb.ai/noyhassid-tau/randopt/runs/i58fk687">jpg</a></td></tr>
+    <tr><td>Probe POC (gaussian)</td><td>head 1.5M</td><td>lr 1e-3, mb 1024, 20 ep</td><td class="num">node9 · 2m</td><td><span class="tag ok">done</span></td><td class="num">77.78</td><td class="num pos">+2.21</td><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/4m2tnlw3">run</a></td></tr>
+    <tr><td>Probe sweep ×4</td><td>head 1.5M</td><td>lr on val → 1e-3, full-batch</td><td class="num">node9 · ~1m</td><td><span class="tag ok">done</span></td><td class="num">76.71–79.07</td><td class="num pos">+1.5…+1.9</td><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/aoudwgeq">gn</a> · <a href="https://wandb.ai/noyhassid-tau/randopt/runs/i0gbr9ns">mb</a> · <a href="https://wandb.ai/noyhassid-tau/randopt/runs/vdpsilin">fog</a> · <a href="https://wandb.ai/noyhassid-tau/randopt/runs/kl01llx4">jpg</a></td></tr>
+    <tr><td>FT full model</td><td>1.138B</td><td>lr 1e-5 cosine, bs 32, 2 ep</td><td class="num">node9 · 42m</td><td><span class="tag ok">done</span></td><td class="num">77.81</td><td class="num pos">+2.24</td><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/dypncey7">run</a></td></tr>
+    <tr><td>FT last-4 blocks</td><td>115M</td><td>lr 1e-5 cosine, bs 64, 2 ep</td><td class="num">node9 · 24m</td><td><span class="tag ok">done</span></td><td class="num">77.78</td><td class="num pos">+2.21</td><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/3q7mnexq">run</a></td></tr>
+    <tr><td>RandOpt POC</td><td>—</td><td>σ {3e-4, 1e-3}, N=10, K≤3</td><td class="num">node5 · 3.7h</td><td><span class="tag ok">done</span></td><td class="num">75.43</td><td class="num neg">−0.14</td><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/waqvthg4">run</a></td></tr>
+    <tr><td>RandOpt σ=1e-4</td><td>—</td><td>N=100, K∈{1,5}</td><td class="num">node4 · 6.9h</td><td><span class="tag ok">done</span></td><td class="num">75.60</td><td class="num pos">+0.03</td><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/e7e3lf6g">run</a></td></tr>
+    <tr><td>RandOpt σ=3e-4</td><td>—</td><td>N=100, K∈{1,5}</td><td class="num">node9 · 5.3h</td><td><span class="tag ok">done</span></td><td class="num">75.53</td><td class="num neg">−0.04</td><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/lk5f7b90">run</a></td></tr>
+    <tr><td>RandOpt σ=1e-3</td><td>—</td><td>N=100, K∈{1,5}</td><td class="num">node9 · 5.1h</td><td><span class="tag ok">done</span></td><td class="num">75.04</td><td class="num neg">−0.53</td><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/mh2c4fue">run</a></td></tr>
+    <tr class="collapse-row"><td>RandOpt σ=3e-3</td><td>—</td><td>N=100, K∈{1,5}</td><td class="num">node6 · 6.9h</td><td><span class="tag bad">collapse</span></td><td class="num">66.29</td><td class="num neg">−9.28</td><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/w486satw">run</a></td></tr>
+  </tbody>
+</table>
+</div>
+<p class="meta">Per-corruption bases (kNN → probe): gaussian 75.59 → 77.11 · motion_blur 75.01 → 76.71 · fog 76.35 → 78.24 · jpeg 77.41 → 79.07. All numbers: W&amp;B <code>e1-*</code>; raw JSON in <code>results/e1-*/results.json</code> on the PVC.</p>
+
+<h2>What we are searching for in these results</h2>
+<ol class="search">
+  <li><strong>Does a thicket exist around the SSL init on a task with headroom?</strong> The clean comparison E1 was built for: gradient descent reaches +2.2pp at a travel distance of σ-eq ≈ 1.3–2.3e-4; random sampling at those very radii (100 draws each) finds +0.03pp at best. Existence ≠ findability: good models are there, but occupy negligible volume. Verdict at N=100: <em>needle</em>. The remaining test before concluding is scale — the paper uses N=5,000; the flat cells (1e-4, 3e-4) are the candidates to deepen.</li>
+  <li><strong>Where is the collapse cliff?</strong> Between σ=1e-3 and 3e-3 for giant/scope-all on this task. Any future RandOpt variant (structured perturbation, trained-head center) must search below it.</li>
+  <li><strong>Do the gradient baselines separate?</strong> Not at this budget: probe ≈ FT-full ≈ FT-last4 ≈ 77.8%. Adaptation is head-dominated; moving 1.138B backbone weights buys ≤ 0.03pp over training 1.5M head weights. This convergence sets a concrete target: RandOpt "working" here means approaching +2.2pp without gradients.</li>
+</ol>
+
+<h2>Open items</h2>
+<p>① Probe rerun decision — mini-batch vs more full-batch epochs (seconds of compute, ~0.7pp of honesty). ② RandOpt next tier — deepen σ ≤ 3e-4 cells toward paper-N via pooled seed-disjoint jobs, or pivot to a trained-head center; both gated on the train/test split review with Nimrod. ③ FT and RandOpt extension to the other three corruptions. ④ Engine bf16 inference — would roughly halve RandOpt's per-perturbation cost before any large campaign.</p>
+
+<footer>
+  <p>E1 · RandOpt SSL Vision · branch <code>feature/vision-randopt</code> @ <code>50aae55</code> · paper: Neural Thickets, <a href="https://arxiv.org/abs/2603.12228">arXiv 2603.12228</a> · spec <code>experiments/E1_imagenet_c.md</code> · generated 2026-07-15</p>
+</footer>
+</main>
