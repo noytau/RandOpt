@@ -17,6 +17,9 @@ MANIFEST="${MANIFEST:-data/imagenet_c/data.json}"
 # ImageNet-C test); both default to MANIFEST for the classic single-set run
 TRAIN_MANIFEST="${TRAIN_MANIFEST:-$MANIFEST}"
 TEST_MANIFEST="${TEST_MANIFEST:-$MANIFEST}"
+# presized224 (IC protocol) | official_resize (raw clean-ImageNet JPEGs)
+TRAIN_INPUT_MODE="${TRAIN_INPUT_MODE:-presized224}"
+TEST_INPUT_MODE="${TEST_INPUT_MODE:-presized224}"
 
 POPULATION="${POPULATION:-200}"
 SIGMAS="${SIGMAS:-0.0001,0.0002,0.0005,0.001}"
@@ -40,6 +43,8 @@ python3 -u scripts/randopt_imagenet_c.py \
   --manifest "$MANIFEST" \
   --train_manifest "$TRAIN_MANIFEST" \
   --test_manifest "$TEST_MANIFEST" \
+  --train_input_mode "$TRAIN_INPUT_MODE" \
+  --test_input_mode "$TEST_INPUT_MODE" \
   --population_size "$POPULATION" \
   --sigma_values "$SIGMAS" \
   --top_k_ratios "$TOP_K_RATIOS" \

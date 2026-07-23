@@ -36,6 +36,13 @@ def parse_args():
     p.add_argument("--test_manifest", default=None,
                    help="manifest for the ensemble test set (its 'test' "
                         "split); defaults to --manifest")
+    p.add_argument("--train_input_mode", default="presized224",
+                   choices=["presized224", "official_resize"],
+                   help="transform for scoring images: presized224 = normalize "
+                        "only (ImageNet-C protocol), official_resize = Resize "
+                        "256 -> CenterCrop 224 (raw clean-ImageNet JPEGs)")
+    p.add_argument("--test_input_mode", default="presized224",
+                   choices=["presized224", "official_resize"])
     p.add_argument("--population_size", type=int, default=30)
     p.add_argument("--sigma_values", default="0.0005,0.001,0.002")
     p.add_argument("--top_k_ratios", default="0.05,0.1,0.2")
@@ -88,7 +95,8 @@ def run_sampling(args, engines, handler, train_items, wandb_run):
 
         ray.get([engines[i].perturb_weights.remote(s, sig)
                  for i, (s, sig) in enumerate(batch)])
-        preds = ray.get([engines[i].predict.remote(train_items)
+        preds = ray.get([engines[i].predict.remote(train_items,
+                                                   args.train_input_mode)
                          for i in range(n)])
         ray.get([engines[i].restore_weights.remote(s, sig)
                  for i, (s, sig) in enumerate(batch)])
@@ -140,7 +148,8 @@ def run_ensemble(args, engines, handler, test_items, top_k_perturbs,
               flush=True)
         ray.get([engines[i].perturb_weights.remote(s, sig)
                  for i, (s, sig) in enumerate(batch)])
-        preds = ray.get([engines[i].predict.remote(test_items)
+        preds = ray.get([engines[i].predict.remote(test_items,
+                                                   args.test_input_mode)
                          for i in range(len(batch))])
         ray.get([engines[i].restore_weights.remote(s, sig)
                  for i, (s, sig) in enumerate(batch)])
@@ -199,10 +208,12 @@ def main(args):
 
     # base model (the anchor every gain is measured against)
     t0 = time.time()
-    base_train = score(handler, ray.get(engines[0].predict.remote(train_items)),
-                       train_items)
-    base_test = score(handler, ray.get(engines[0].predict.remote(test_items)),
-                      test_items)
+    base_train = score(handler,
+                       ray.get(engines[0].predict.remote(
+                           train_items, args.train_input_mode)), train_items)
+    base_test = score(handler,
+                      ray.get(engines[0].predict.remote(
+                          test_items, args.test_input_mode)), test_items)
     print(f"BASE: train_reward={base_train:.4f} test_accuracy={base_test:.4f} "
           f"({time.time()-t0:.0f}s)")
     if wandb_run:

@@ -85,13 +85,19 @@ class SSLEngineImpl:
             torch.hub.load_state_dict_from_url(head_url, map_location="cpu"))
         self.head = self.head.to(self.device).eval()
 
-        if input_mode == "presized224":
-            self.transform = transforms.Compose(
-                [transforms.ToTensor(), make_normalize_transform()])
-        elif input_mode == "official_resize":
-            self.transform = make_classification_eval_transform()
-        else:
+        # crop is NOT needed for ImageNet-C (Hendrycks ships presized 224x224:
+        # normalize only) but IS needed for raw clean-ImageNet JPEGs (variable
+        # size -> official Resize 256 -> CenterCrop 224). Both transforms are
+        # built so one engine can score and test on different datasets;
+        # input_mode picks the default, predict() can override per call.
+        self.transforms = {
+            "presized224": transforms.Compose(
+                [transforms.ToTensor(), make_normalize_transform()]),
+            "official_resize": make_classification_eval_transform(),
+        }
+        if input_mode not in self.transforms:
             raise ValueError(f"unknown input_mode '{input_mode}'")
+        self.default_input_mode = input_mode
 
         self.perturb_target = perturb_target
         self.last_n_blocks = last_n_blocks
@@ -102,13 +108,18 @@ class SSLEngineImpl:
     # directly consumable by handler.compute_reward / extract_answer.
     # ------------------------------------------------------------------
 
-    def predict(self, items: List[Dict]) -> List[str]:
-        """Manifest items ({"image_path": ...}) -> predicted labels as strings."""
+    def predict(self, items: List[Dict], input_mode: str = None) -> List[str]:
+        """Manifest items ({"image_path": ...}) -> predicted labels as strings.
+
+        input_mode overrides the engine default for this call (e.g. score on
+        clean ImageNet with "official_resize", test on IC with "presized224").
+        """
         from data_handlers.imagenet_c import load_image_batch
+        transform = self.transforms[input_mode or self.default_input_mode]
         preds: List[str] = []
         for i in range(0, len(items), self.inference_batch_size):
             batch = load_image_batch(items[i:i + self.inference_batch_size],
-                                     self.transform).to(self.device)
+                                     transform).to(self.device)
             with torch.no_grad():
                 f = self.backbone.forward_features(batch)
                 feat = torch.cat([f["x_norm_clstoken"],
