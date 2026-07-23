@@ -28,6 +28,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--manifest", default="data/imagenet_c/data.json")
+    p.add_argument("--train_manifest", default=None,
+                   help="manifest for the perturbation-scoring set (its 'train' "
+                        "split); defaults to --manifest. Lets scoring run on a "
+                        "different dataset than the final test, e.g. clean "
+                        "ImageNet train / ImageNet-C test")
+    p.add_argument("--test_manifest", default=None,
+                   help="manifest for the ensemble test set (its 'test' "
+                        "split); defaults to --manifest")
     p.add_argument("--population_size", type=int, default=30)
     p.add_argument("--sigma_values", default="0.0005,0.001,0.002")
     p.add_argument("--top_k_ratios", default="0.05,0.1,0.2")
@@ -45,6 +53,8 @@ def parse_args():
     p.add_argument("--wandb_project", default="randopt")
     p.add_argument("--wandb_name", default=None)
     args = p.parse_args()
+    args.train_manifest = args.train_manifest or args.manifest
+    args.test_manifest = args.test_manifest or args.manifest
     args.sigma_list = [float(s) for s in args.sigma_values.split(",")]
     ratios = [float(r) for r in args.top_k_ratios.split(",")]
     args.top_k_list = sorted({max(1, int(r * args.population_size))
@@ -164,8 +174,11 @@ def main(args):
 
     from data_handlers import get_dataset_handler
     handler = get_dataset_handler("imagenet_c")
-    train_items = handler.load_data(args.manifest, split="train")
-    test_items = handler.load_data(args.manifest, split="test")
+    train_items = handler.load_data(args.train_manifest, split="train")
+    test_items = handler.load_data(args.test_manifest, split="test")
+    if args.train_manifest != args.test_manifest:
+        print(f"scoring manifest: {args.train_manifest}\n"
+              f"test manifest:    {args.test_manifest}")
     rng = np.random.default_rng(args.global_seed)
     if args.train_samples and args.train_samples < len(train_items):
         idx = rng.choice(len(train_items), size=args.train_samples, replace=False)

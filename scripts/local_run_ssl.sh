@@ -13,6 +13,10 @@ cd "$(dirname "$0")/.."
 # comes from randopt_env.sh; source it before running).
 CUDA_DEVICES="${CUDA_DEVICES:-1,2}"
 MANIFEST="${MANIFEST:-data/imagenet_c/data.json}"
+# scoring/test may come from different datasets (e.g. clean-ImageNet scoring,
+# ImageNet-C test); both default to MANIFEST for the classic single-set run
+TRAIN_MANIFEST="${TRAIN_MANIFEST:-$MANIFEST}"
+TEST_MANIFEST="${TEST_MANIFEST:-$MANIFEST}"
 
 POPULATION="${POPULATION:-200}"
 SIGMAS="${SIGMAS:-0.0001,0.0002,0.0005,0.001}"
@@ -34,6 +38,8 @@ EXPERIMENT_DIR="${EXPERIMENT_DIR:-results/randopt-ssl-local-N${POPULATION}-${SCO
 
 python3 -u scripts/randopt_imagenet_c.py \
   --manifest "$MANIFEST" \
+  --train_manifest "$TRAIN_MANIFEST" \
+  --test_manifest "$TEST_MANIFEST" \
   --population_size "$POPULATION" \
   --sigma_values "$SIGMAS" \
   --top_k_ratios "$TOP_K_RATIOS" \
