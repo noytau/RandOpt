@@ -43,6 +43,15 @@ def parse_args():
                         "256 -> CenterCrop 224 (raw clean-ImageNet JPEGs)")
     p.add_argument("--test_input_mode", default="presized224",
                    choices=["presized224", "official_resize"])
+    p.add_argument("--backbone_family", default="dinov2",
+                   choices=["dinov2", "dinov3"])
+    p.add_argument("--backbone_name", default=None,
+                   help="hub entrypoint; default = family default "
+                        "(dinov2_vitg14_reg / dinov3_vit7b16)")
+    p.add_argument("--weights_path", default=None,
+                   help="gated backbone .pth (dinov3); default = ingest path")
+    p.add_argument("--head_path", default=None,
+                   help="classifier head .pth (dinov3); default = ingest path")
     p.add_argument("--population_size", type=int, default=30)
     p.add_argument("--sigma_values", default="0.0005,0.001,0.002")
     p.add_argument("--top_k_ratios", default="0.05,0.1,0.2")
@@ -174,10 +183,12 @@ def run_ensemble(args, engines, handler, test_items, top_k_perturbs,
 
 
 def main(args):
+    fam = "" if args.backbone_family == "dinov2" else f"-{args.backbone_family}"
     wandb_run = None
     if args.wandb_project:
         import wandb
-        name = args.wandb_name or f"randopt-ssl-imagenet-c-N{args.population_size}"
+        name = args.wandb_name or (
+            f"randopt-ssl{fam}-imagenet-c-N{args.population_size}")
         wandb_run = wandb.init(project=args.wandb_project, name=name,
                                config=vars(args))
 
@@ -200,6 +211,10 @@ def main(args):
     ray.init(ignore_reinit_error=True, include_dashboard=False)
     from vision import launch_ssl_engines
     engines = launch_ssl_engines(args.num_engines,
+                                 backbone_family=args.backbone_family,
+                                 backbone_name=args.backbone_name,
+                                 weights_path=args.weights_path,
+                                 head_path=args.head_path,
                                  perturb_target=args.perturb_target,
                                  last_n_blocks=args.last_n_blocks,
                                  inference_batch_size=args.batch_size)
@@ -235,7 +250,7 @@ def main(args):
                             base_test, wandb_run)
 
     exp_dir = args.experiment_dir or (
-        f"results/randopt-ssl-imagenet-c-N{args.population_size}")
+        f"results/randopt-ssl{fam}-imagenet-c-N{args.population_size}")
     os.makedirs(exp_dir, exist_ok=True)
     with open(os.path.join(exp_dir, "results.json"), "w") as f:
         json.dump({

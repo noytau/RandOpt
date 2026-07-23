@@ -37,17 +37,45 @@ import torch.nn as nn
 _HEAD_URL = ("https://dl.fbaipublicfiles.com/dinov2/dinov2_vitg14/"
              "dinov2_vitg14_reg4_linear_head.pth")
 
+# Per-family model source. Both families share the same downstream contract:
+# forward_features -> {"x_norm_clstoken", "x_norm_patchtokens"}, classifier
+# input = [CLS ; mean(patch)] = 2*embed_dim, and "blocks.{i}.*" param naming
+# (so the last_n_blocks scope works unchanged).
+#   dinov2: hub auto-downloads weights; released head fetched by URL.
+#   dinov3: weights are GATED (Meta signed CDN) — pre-downloaded to disk by
+#           scripts/pvc_ingest_dinov3.sh; hub entrypoint takes weights=<path>.
+_FAMILIES = {
+    "dinov2": {
+        "repo_env": "DINOV2_DIR",
+        "repo_candidates": ["/mnt5/noy/dinov2", "/storage/noy/dinov2"],
+        "default_backbone": "dinov2_vitg14_reg",
+        "head_url": _HEAD_URL,
+    },
+    "dinov3": {
+        "repo_env": "DINOV3_DIR",
+        "repo_candidates": ["/mnt5/noy/dinov3", "/storage/noy/dinov3"],
+        "default_backbone": "dinov3_vit7b16",
+        "weights_path": ("/storage/noy/models/dinov3/"
+                         "dinov3_vit7b16_pretrain_lvd1689m-a955f4ea.pth"),
+        "head_path": ("/storage/noy/models/dinov3/"
+                      "dinov3_vit7b16_imagenet1k_linear_head-90d8ed92.pth"),
+    },
+}
 
-def dinov2_repo_dir() -> str:
-    """Pinned official clone: $DINOV2_DIR, else per-server convention."""
-    for d in (os.environ.get("DINOV2_DIR"),
-              "/mnt5/noy/dinov2",
-              "/storage/noy/dinov2"):
+
+def family_repo_dir(family: str) -> str:
+    """Pinned official clone: $<FAMILY>_DIR, else per-server convention."""
+    cfg = _FAMILIES[family]
+    for d in ([os.environ.get(cfg["repo_env"])] + cfg["repo_candidates"]):
         if d and os.path.isdir(d):
             return d
     raise FileNotFoundError(
-        "dinov2 clone not found — git clone facebookresearch/dinov2 and/or "
-        "set DINOV2_DIR")
+        f"{family} clone not found — git clone facebookresearch/{family} "
+        f"and/or set {cfg['repo_env']}")
+
+
+def dinov2_repo_dir() -> str:  # kept for existing callers
+    return family_repo_dir("dinov2")
 
 
 class SSLEngineImpl:
@@ -60,29 +88,47 @@ class SSLEngineImpl:
 
     def __init__(
         self,
-        backbone_name: str = "dinov2_vitg14_reg",
+        backbone_family: str = "dinov2",
+        backbone_name: str = None,
+        weights_path: str = None,
+        head_path: str = None,
         head_url: str = _HEAD_URL,
         inference_batch_size: int = 16,
         perturb_target: str = "all",
         last_n_blocks: int = 0,
         input_mode: str = "presized224",
     ):
-        repo = dinov2_repo_dir()
+        cfg = _FAMILIES[backbone_family]
+        backbone_name = backbone_name or cfg["default_backbone"]
+        repo = family_repo_dir(backbone_family)
         sys.path.insert(0, repo)
-        from dinov2.data.transforms import (make_classification_eval_transform,
-                                            make_normalize_transform)
         from torchvision import transforms
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.inference_batch_size = inference_batch_size
+        self.backbone_family = backbone_family
 
-        self.backbone = torch.hub.load(repo, backbone_name, source="local")
+        if backbone_family == "dinov2":
+            self.backbone = torch.hub.load(repo, backbone_name, source="local")
+        else:  # gated weights pre-downloaded to disk (pvc_ingest_dinov3.sh)
+            wp = weights_path or cfg["weights_path"]
+            self.backbone = torch.hub.load(repo, backbone_name, source="local",
+                                           weights=wp)
         self.backbone = self.backbone.to(self.device).eval()
         embed_dim = self.backbone.embed_dim
 
         self.head = nn.Linear(2 * embed_dim, 1000)
-        self.head.load_state_dict(
-            torch.hub.load_state_dict_from_url(head_url, map_location="cpu"))
+        if backbone_family == "dinov2":
+            sd = torch.hub.load_state_dict_from_url(head_url,
+                                                    map_location="cpu")
+        else:
+            sd = torch.load(head_path or cfg["head_path"], map_location="cpu")
+            if not isinstance(sd, dict) or "weight" not in sd:
+                # unwrap {"linear_head": {...}} / prefixed keys if present
+                sd = sd.get("linear_head", sd) if isinstance(sd, dict) else sd
+                sd = {k.split("linear_head.")[-1]: v for k, v in sd.items()}
+            sd = {k: v.float() for k, v in sd.items()}  # head ships fp16
+        self.head.load_state_dict(sd)
         self.head = self.head.to(self.device).eval()
 
         # crop is NOT needed for ImageNet-C (Hendrycks ships presized 224x224:
@@ -90,10 +136,21 @@ class SSLEngineImpl:
         # size -> official Resize 256 -> CenterCrop 224). Both transforms are
         # built so one engine can score and test on different datasets;
         # input_mode picks the default, predict() can override per call.
+        # built with torchvision directly (family-agnostic) — byte-equivalent
+        # to dinov2's make_normalize_transform / make_classification_eval_
+        # transform (same mean/std/bicubic), and dinov3 uses the same protocol
+        normalize = transforms.Normalize(mean=(0.485, 0.456, 0.406),
+                                         std=(0.229, 0.224, 0.225))
         self.transforms = {
             "presized224": transforms.Compose(
-                [transforms.ToTensor(), make_normalize_transform()]),
-            "official_resize": make_classification_eval_transform(),
+                [transforms.ToTensor(), normalize]),
+            "official_resize": transforms.Compose([
+                transforms.Resize(
+                    256, interpolation=transforms.InterpolationMode.BICUBIC),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                normalize,
+            ]),
         }
         if input_mode not in self.transforms:
             raise ValueError(f"unknown input_mode '{input_mode}'")
