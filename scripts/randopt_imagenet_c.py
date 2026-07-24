@@ -16,7 +16,7 @@ import json
 import os
 import sys
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -77,6 +77,24 @@ def parse_args():
                               for r in ratios}, reverse=True)
     args.max_top_k = args.top_k_list[0]
     return args
+
+
+def sample_per_class(items: List[Dict], n_total: int, rng) -> List[Dict]:
+    """Class-balanced random subsample: n_total/n_classes items drawn
+    randomly from EVERY class, so any selected set represents all 1k
+    classes equally. n_total of 0 (or >= len) keeps the full set."""
+    if not n_total or n_total >= len(items):
+        return items
+    by_class = defaultdict(list)
+    for d in items:
+        by_class[d["class_id"]].append(d)
+    per = max(1, n_total // len(by_class))
+    picked = []
+    for c in sorted(by_class):
+        pool = by_class[c]
+        idx = rng.choice(len(pool), size=min(per, len(pool)), replace=False)
+        picked.extend(pool[i] for i in idx)
+    return picked
 
 
 def score(handler, preds: List[str], items: List[Dict]) -> float:
@@ -200,13 +218,10 @@ def main(args):
         print(f"scoring manifest: {args.train_manifest}\n"
               f"test manifest:    {args.test_manifest}")
     rng = np.random.default_rng(args.global_seed)
-    if args.train_samples and args.train_samples < len(train_items):
-        idx = rng.choice(len(train_items), size=args.train_samples, replace=False)
-        train_items = [train_items[i] for i in idx]
-    if args.test_samples and args.test_samples < len(test_items):
-        idx = rng.choice(len(test_items), size=args.test_samples, replace=False)
-        test_items = [test_items[i] for i in idx]
-    print(f"scoring set: {len(train_items)} | test: {len(test_items)}")
+    train_items = sample_per_class(train_items, args.train_samples, rng)
+    test_items = sample_per_class(test_items, args.test_samples, rng)
+    print(f"scoring set: {len(train_items)} | test: {len(test_items)} "
+          f"(class-balanced)")
 
     ray.init(ignore_reinit_error=True, include_dashboard=False)
     from vision import launch_ssl_engines
