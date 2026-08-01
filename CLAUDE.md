@@ -96,9 +96,32 @@ bash scripts/install_vllm_sglang_mcore.sh   # or sbatch install/ on cluster
 ```
 Run scripts are in `baselines/run_jobs/`. See `baselines/README.md` for full details.
 
-## RunAI Cluster
+## Standalone GPU Servers (PREFERRED for new jobs)
+
+**Use these before RunAI** when submitting tasks — large GPUs, no scheduler
+roulette, no daily token expiry, no noisy-neighbor OOM kills:
+
+| Host alias | IP | User |
+|---|---|---|
+| `gpu56` | 132.66.150.56 | noy (Geoffry password) |
+| `gpu55` | 132.66.150.55 | noy (Geoffry password) |
+| `Geoffry` | 132.66.52.64 | noy — 8× 2080 Ti 11GB (GPU 3 DEAD; small-model/smoke tier) |
+
+Status: `gpu56`/`gpu55` are NEW (Aug 2026) and still need bring-up (key auth
+via `ssh-copy-id`, code clone, python env, dataset pull from Geoffry) — see
+TASKS.md checklist. Fall back to RunAI only for multi-node scale.
+
+## RunAI Cluster (fallback)
 
 **Project:** `raja` | **Image:** `noyhassid/randopt-vllm:latest` | **Code on cluster:** `/storage/noy/RandOpt/` (Lustre PVC) | **Results:** `/storage/noy/RandOpt/results/`
+
+**Hard-won submission rules:** pin big models with `--node-pools raja` (48G
+A6000s; hpc-node3 = 24 GB); ALWAYS set `--cpu-memory-request`; add
+`export RAY_memory_monitor_refresh_ms=0` to every Ray job command (Ray's
+node-level monitor kills our workers when NEIGHBOR pods fill the node);
+`-g N` cannot combine with `--gpu-request-type memory`; node
+exclusion/affinity unsupported; `runai logs`/`exec` may be broken (expired
+cluster-api cert) — read the job console from the W&B run file `output.log`.
 
 ### Workflow
 
