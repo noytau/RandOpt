@@ -3,7 +3,12 @@ from .base import DatasetHandler
 from .countdown import CountdownHandler
 from .gqa import GQAHandler
 from .gsm8k import GSM8KHandler
+from .imagenet import ImageNetHandler
+from .imagenet_a import ImageNetAHandler
 from .imagenet_c import ImageNetCHandler
+from .imagenet_es import ImageNetESHandler
+from .imagenet_r import ImageNetRHandler
+from .imagenet_sketch import ImageNetSketchHandler
 from .math500 import MATH500Handler
 from .mbpp import MBPPHandler
 from .olympiadbench import OlympiadBenchHandler
@@ -23,7 +28,12 @@ DATASET_HANDLERS = {
     "uspto50k": USPTO50KHandler,
     "rocstories": ROCStoriesHandler,
     "gqa": GQAHandler,
+    "imagenet": ImageNetHandler,
     "imagenet_c": ImageNetCHandler,
+    "imagenet_a": ImageNetAHandler,
+    "imagenet_r": ImageNetRHandler,
+    "imagenet_sketch": ImageNetSketchHandler,
+    "imagenet_es": ImageNetESHandler,
 }
 
 # -----------------------------------------------------------------------------

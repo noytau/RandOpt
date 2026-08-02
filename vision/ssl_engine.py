@@ -165,11 +165,16 @@ class SSLEngineImpl:
     # directly consumable by handler.compute_reward / extract_answer.
     # ------------------------------------------------------------------
 
-    def predict(self, items: List[Dict], input_mode: str = None) -> List[str]:
+    def predict(self, items: List[Dict], input_mode: str = None,
+                logit_mask: Optional[torch.Tensor] = None) -> List[str]:
         """Manifest items ({"image_path": ...}) -> predicted labels as strings.
 
         input_mode overrides the engine default for this call (e.g. score on
         clean ImageNet with "official_resize", test on IC with "presized224").
+        logit_mask (optional): additive {0, -inf} mask over the 1000 head
+        outputs, from utils.logit_mask.build_mask — restricts predictions to
+        a dataset's class subset (ImageNet-A/R/ES) without retraining a head.
+        None (default) preserves unmasked, full-1000-way behavior.
         """
         from data_handlers.imagenet_c import load_image_batch
         transform = self.transforms[input_mode or self.default_input_mode]
@@ -181,7 +186,10 @@ class SSLEngineImpl:
                 f = self.backbone.forward_features(batch)
                 feat = torch.cat([f["x_norm_clstoken"],
                                   f["x_norm_patchtokens"].mean(dim=1)], dim=1)
-                labels = self.head(feat.float()).argmax(dim=1).cpu().tolist()
+                logits = self.head(feat.float())
+                if logit_mask is not None:
+                    logits = logits + logit_mask.to(logits.device)
+                labels = logits.argmax(dim=1).cpu().tolist()
             preds.extend(str(l) for l in labels)
         return preds
 

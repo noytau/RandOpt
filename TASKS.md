@@ -39,6 +39,50 @@ everywhere** (matches FT displacement σ-equivalent ~2e-4).
 - **Fix for any future Ray job**: add `export RAY_memory_monitor_refresh_ms=0`
   to the job command (kernel cgroup OOM killer remains the real guardrail).
 
+## ImageNet distribution-shift suite (added 2026-08-01)
+
+Data prep for 4 new ImageNet-1k-label-space shift datasets (ImageNet-A/R/
+Sketch/ES), so `linear_probe`/`finetune`/`randopt` can later be compared on
+identical data with the frozen 1000-way head reused unchanged. Plan file:
+`.claude/plans/snazzy-popping-fairy.md` (has the full spec + adaptations).
+
+**Key finding**: the existing `scripts/make_imagenet_c_manifest.py` labels
+classes as `enumerate(sorted(os.listdir(data_dir)))` — a **local** wnid sort,
+silently correct today only because ImageNet-C/plain-ImageNet manifests
+always cover all 1000 classes. Confirmed this breaks for real on a 200-class
+subset: the published ImageNet-R split (CODA-Prompt's
+`imagenet-r_{train,test}.yaml`) encodes `targets` as local 0–199 indices, not
+canonical ImageNet-1k ones. New pipeline (`scripts/data_prep/`) resolves every
+label through a canonical `wnid -> 0..999` index
+(`build_class_index.py`, from the real `imagenet/val` 1000-class dirs) instead.
+
+Downloads: ImageNet-R/A from Berkeley tars (checksum-verified); ImageNet-Sketch
+and ImageNet-ES both have direct HF-hosted zips (`songweig/imagenet_sketch`,
+`Edw2n/ImageNet-ES` — standard ES, not ES-Diverse, per 2026-08-01 decision) —
+simpler and more reliable than the gdown/ES-Studio paths a generic spec would
+suggest. Data lives on Geoffry under `/mnt5/noy/datasets/{raw,manifests}/`.
+
+- [x] Canonical class index, manifest builder, verifier, zero-shot sanity
+      script, 4 new `data_handlers` subclasses, `utils/logit_mask.py` — coded
+      and unit-tested locally (`tests/test_build_class_index.py`,
+      `tests/test_shift_manifest_builder.py`).
+- [ ] Sync `scripts/data_prep/` + `data_handlers/` + `utils/logit_mask.py` +
+      `vision/ssl_engine.py` to Geoffry; build the canonical class index there.
+- [ ] Download + extract all 4 datasets on Geoffry (background job; ES alone
+      is 26 GB).
+- [ ] ImageNet-ES specifically: run `make_shift_manifests.py --dataset
+      imagenet_es --inspect` on the REAL extracted tree first (upstream
+      doesn't fully document the `param_control` nesting), hand-write
+      `_meta/imagenet_es_config.json` (dark-condition predicate, reference-dir
+      names), then build its manifest.
+- [ ] Build + verify manifests for imagenet_r/a/sketch (straightforward,
+      `--dataset all` once downloads land); run `verify_shift_manifests.py`.
+- [ ] Run `zero_shot_sanity.py --dataset all`; report the 4 top-1 numbers and
+      whether the expected difficulty ordering (ES > A > R > Sketch) holds —
+      if badly violated, suspect a label-mapping bug before anything else.
+- [ ] Follow-on (not this pass): wire `finetune`/`randopt` runners to these 4
+      manifests using `utils/logit_mask.py`.
+
 ## Open tasks
 
 - [ ] **FT matched baseline** (scripts/ft_matched_baseline.py): fine-tune the
