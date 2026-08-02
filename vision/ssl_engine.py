@@ -289,9 +289,22 @@ class SSLEngineImpl:
 SSLEngine = ray.remote(num_gpus=1)(SSLEngineImpl)
 
 
-def launch_ssl_engines(num_engines: int, **engine_kwargs):
+def launch_ssl_engines(num_engines: int, init_batch_size: int = 2, **engine_kwargs):
     """Launch N SSLEngine actors (1 GPU each), mirroring launch_engines'
-    GPU-count check and store_base_weights readiness barrier."""
+    GPU-count check and store_base_weights readiness barrier.
+
+    Engines are constructed in batches of init_batch_size (default 2, the
+    largest concurrency already proven safe by real runs) rather than all at
+    once: each engine's __init__ does a CPU-side torch.load of the backbone
+    checkpoint, which transiently holds ~2x the checkpoint size in host RAM
+    (the freshly-constructed model's own params + the just-deserialized
+    state_dict, before load_state_dict's copy_ frees the latter) on top of
+    store_base_weights' own full-backbone CPU snapshot. For DINOv2 (~4.4GB/
+    engine) firing all N at once never mattered; for DINOv3's ViT-7B
+    (~27GB/engine, so ~54GB transient) launching 6-8 at once blew a 251GB
+    host past its limit and OOM-killed a worker mid-load. Batching caps the
+    transient peak to init_batch_size regardless of final num_engines.
+    """
     available = int(ray.cluster_resources().get("GPU", 0))
     if available < num_engines:
         print(f"WARNING: {num_engines} engines requested, {available} GPUs "
@@ -299,7 +312,13 @@ def launch_ssl_engines(num_engines: int, **engine_kwargs):
         num_engines = available
     if num_engines == 0:
         raise RuntimeError("no GPUs available in the Ray cluster")
-    engines = [SSLEngine.remote(**engine_kwargs) for _ in range(num_engines)]
-    ray.get([e.store_base_weights.remote() for e in engines])  # readiness
+    engines = []
+    num_batches = (num_engines + init_batch_size - 1) // init_batch_size
+    for b in range(num_batches):
+        start, end = b * init_batch_size, min((b + 1) * init_batch_size, num_engines)
+        batch = [SSLEngine.remote(**engine_kwargs) for _ in range(end - start)]
+        ray.get([e.store_base_weights.remote() for e in batch])  # readiness
+        print(f"  init batch {b + 1}/{num_batches} ready ({end - start} engines)")
+        engines.extend(batch)
     print(f"{num_engines} SSL engines ready")
     return engines
