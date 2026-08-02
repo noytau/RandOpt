@@ -98,39 +98,56 @@ suggest. Data lives on Geoffry under `/mnt5/noy/datasets/{raw,manifests}/`.
       plusarg (any of imagenet/imagenet_c/imagenet_a/r/sketch/es, or `all` =
       the 4 shift datasets) resolved through one registry — scoring always on
       clean ImageNet, shared across every named target in one job.
-- [ ] **Run base/FT/RandOpt(N=2000,K=50) on DINOv3, same 6 datasets** (requested
-      2026-08-02). Findings so far, before any run is attempted:
-      - **Blocker needing USER action**: no DINOv3 repo or weights exist on
-        Geoffry/gpu55/gpu56 (checked directly) — weights are Meta-gated, not a
-        public download like DINOv2's. Need either a signed URL from Meta's
-        DINOv3 access request, or to pull the weights from wherever they
-        already lived for the earlier d2/d3 series (`/storage/noy/models/
-        dinov3/` on RunAI, per that series' notes — not checked this session,
-        no direct RunAI access available).
-      - **Dataset code needs no changes**: `--backbone_family dinov3` already
-        works in both `randopt_shift.py`/`ft_matched_baseline.py`; datasets are
-        handled at the manifest/handler layer, backbone-agnostic.
-      - **`ft_matched_baseline.py` needs a real change**: full fp32 AdamW on a
-        7B-param model needs ~112GB GPU RAM (params+grad+2 optimizer moments)
-        — doesn't fit a 46GB A6000. Needs a partial-fine-tune scope (freeze
-        most of the backbone, train only head + last N blocks, mirroring the
-        existing `perturb_target="last_n_blocks"`) before FT can run at all.
-      - **Memory, ViT-7B vs ViT-g**: ~6.4x more params (7B vs 1.1B) -> ~28GB
-        fp32 weights (vs ~4.5GB). Base/RandOpt engine footprint ~28-32GB (fits
-        one A6000, tight); full fp32 FT ~112GB (does not fit one A6000).
-        Geoffry (11GB 2080Ti) is out for DINOv3 entirely, even for base eval.
-      - **CPU RAM caps engine count below 8**: `store_base_weights()` clones
-        to CPU RAM, ~55GB/engine per the earlier d2/d3 series' cluster notes.
-        gpu55/gpu56 have 225GB system RAM -> caps at ~3-4 engines, not 8.
-      - **Real prior timing data** (not a guess): a DINOv3 N=2000/K=50 RandOpt
-        run (`randopt-d3-n2000-k50-tr-intrain1k-te-ic5k`, 2026-07-26) on
-        comparable A6000 hardware with only 2 engines took **17.4h** to
-        actually complete (W&B shows "crashed" but the post-mortem above
-        confirms it finished; only the heartbeat died at teardown). Scaling
-        to ~4 engines (~8.7h) still won't fit "under a day" alongside FT+base
-        at N=2000 — recommend **N=500** (~2.2h at 4 engines) instead, with a
-        real calibration run once weights are available before trusting this
-        extrapolation.
+- [x] DINOv3 weights (`dinov3_vit7b16_pretrain_lvd1689m-a955f4ea.pth`, ~26.9GB;
+      `dinov3_vit7b16_imagenet1k_linear_head-90d8ed92.pth`, ~33MB) downloaded to
+      gpu56 and gpu55 (2026-08-02, via Meta's signed CloudFront URL; gpu55 hit a
+      total network outage mid-session — worked around via direct gpu55->gpu56
+      LAN rsync at ~112MB/s after adding gpu55's key to gpu56's
+      `authorized_keys`, since ping between them was sub-2ms but no SSH trust
+      existed yet). `facebookresearch/dinov3` repo cloned to both (public, no
+      gate). Confirmed working end-to-end: real forward pass, correct
+      `[N,1000]` logits, embed_dim=4096, 6.72B backbone params, ~27GB GPU mem.
+      Extra pip deps needed beyond DINOv2 (dinov3's hubconf pulls in its own
+      segmentation/eval code transitively): `torchmetrics ftfy omegaconf regex
+      scikit-learn submitit termcolor`.
+      - `--ft_scope {all,head,last_n_blocks}` / `--ft_last_n_blocks` added to
+        `ft_matched_baseline.py`, reusing `SSLEngineImpl`'s existing
+        `perturb_target` scope-selection so FT and RandOpt always optimize/
+        perturb the identical param subset. Verified real (no OOM): 671M
+        trainable params (`last_n_blocks=4`), base 85.3%->85.7% IC after 1
+        epoch on 1000 images.
+      - **Real host-RAM ceiling found and fixed** (matches the earlier
+        "~3-4 engines" estimate below almost exactly): `launch_ssl_engines`
+        fired all N actor constructors at once; each does a CPU-side
+        `torch.load` of the backbone checkpoint, transiently ~2x the
+        checkpoint size in host RAM before `load_state_dict`'s `copy_` frees
+        the loaded state_dict. DINOv2 (~4.4GB/engine) never noticed; DINOv3
+        (~27GB/engine steady-state, ~54GB transient) OOM-killed a worker with
+        6-8 engines launched concurrently on gpu56's 251GB host — reproduced
+        twice. Fixed by batching engine construction (mirrors
+        `core/engine.py`'s already-established batched vLLM init, same
+        "avoid contention" shape) — `launch_ssl_engines(..., init_batch_size=2)`.
+        Batching alone wasn't enough at N=6-8 (steady-state N x ~27GB itself
+        approaches the ceiling, not just the transient spike) — **empirically
+        confirmed safe engine count on a 251GB host is 5** (real observed
+        steady-state ~149GB/5 engines, ~107GB margin); 6 and 8 both crashed
+        even with batching.
+      - **Real calibration timing** (N=20, 2 engines, 2026-08-02): base eval
+        ~6.75min (1000 img train + 1000 img imagenet_c test), then a rock-
+        steady **165.3s per perturbation-batch** (2 engines/1 each), ensemble
+        K=2/K=4 both 85.4% vs base 85.3% (+0.1pt). This supersedes the old
+        17.4h/2-engine extrapolation below — grounded ETA for N=2000/K=50 at
+        5 engines: 400 batches x 165.3s sampling (~18.3h) + ~1h base/ensemble
+        overhead across 6 datasets.
+      - **Real run launched** 2026-08-02 20:30 on gpu56, 5 engines, all 6
+        datasets (`--dataset all,imagenet,imagenet_c`), N=2000/K=50,
+        train/test_samples=1000, wandb run `3nes0koi` (name
+        `dinov3-all6-N2000-K50-tr1k-te1k`). ETA ~19-20h from launch.
+      - FT companion run and base-only run on DINOv3: not yet launched (base
+        numbers come for free as part of the RandOpt run above; a real
+        train_samples/last_n_blocks choice for the "final" FT run — beyond the
+        `last_n_blocks=4` smoke test — still needs to be made once the RandOpt
+        run's GPUs free up, since gpu56 is fully committed to it for ~19h).
 - [ ] **Examine the raw/manifests directory structure**: imagenet/imagenet_c
       (pre-existing) store raw images directly under `$DATASETS_ROOT/<name>/`
       and their manifest inside the repo (`data/<name>/data.json`); the 4 new
@@ -154,6 +171,56 @@ suggest. Data lives on Geoffry under `/mnt5/noy/datasets/{raw,manifests}/`.
 - [ ] Follow-on (not started): wire `finetune`/`linear_probe` runners to
       these 4 manifests using `utils/logit_mask.py` (only `randopt` is wired
       up so far, via `randopt_shift.py`).
+
+## New same-distribution train/val/test datasets (added 2026-08-02)
+
+Motivation: the current honesty check ("train" on clean ImageNet, eval on a
+different dataset/corruption) conflates domain shift with train/test
+methodology. Added 5 datasets, each **outside ImageNet's label space** and
+each with **its own train/val/test split**, so RandOpt's train->test
+generalization can be validated within one consistent distribution per
+dataset, separately from the imagenet_c/a/r/sketch/es shift battery above.
+
+| Category | Dataset | Classes | Split train/val/test | Size |
+|---|---|---|---|---|
+| Dark/low-light | exdark | 12 | 3000/1800/2563 (official) | 1.5G |
+| Cartoon/graphics | domainnet_clipart | 345 | 30168/3357/14604 (test official, val carved 10%) | 1.4G |
+| Sketch | domainnet_sketch | 345 | 43395/4817/20916 (test official, val carved 10%) | 2.8G |
+| Niche (aircraft) | fgvc_aircraft | 100 | 3334/3333/3333 (official) | 2.6G |
+| Niche (dogs) | stanford_dogs | 120 | 10800/1200/8580 (test official, val carved 10%) | 784M |
+
+- [x] Confirmed each has a genuine split, not just a description in a paper:
+      exdark's lives in `Groundtruth/imageclasslist.txt` col 5 (per-image
+      train/val/test flag, counts verified to match exactly); fgvc_aircraft
+      ships official `images_variant_{train,val,test}.txt`; stanford_dogs/
+      domainnet ship official train/test lists only — val carved stratified
+      10% from train, test never touched.
+- [x] `scripts/data_prep/download_new_datasets.sh` — idempotent downloader
+      (exdark's image archive is Google-Drive-hosted -> needs `gdown`;
+      everything else direct wget/tar/zip from academic hosts, all URLs
+      reachability-checked before running).
+- [x] `scripts/data_prep/make_new_dataset_manifests.py` — builds
+      `manifests/<dataset>.json` (same `{image, label, split, dataset}` shape
+      as the shift-suite manifests) + `_meta/<dataset>_class_index.json`
+      (own label space per dataset, no ImageNet wnid resolution needed).
+      Caught + fixed two real bugs on the first run before trusting the
+      output: (1) the val-carve helper pooled train+test together before
+      sampling, silently reassigning ~880 Stanford Dogs test images into val;
+      (2) DomainNet's official train/test txt lists prefix every path with
+      the domain name itself (`clipart/aircraft_carrier/...`), which broke
+      the class-name parse. Fixed; re-verified byte-identical manifest
+      entry/split counts across all 3 hosts (same seed=0).
+- [x] Downloaded on Geoffry (source host, most free disk: 1.8 TB), verified,
+      then transferred server-to-server to gpu55 + gpu56; manifests rebuilt
+      independently on all 3 (paths are absolute + host-specific, same
+      convention as the shift suite: Geoffry uses `/mnt5/noy/datasets`,
+      gpu55/gpu56 use `~/datasets`).
+- [ ] Not yet done: no `data_handlers` subclasses wired up for these 5 yet
+      (data-prep only, mirroring how the shift suite was staged first) —
+      needed before `randopt_shift.py`/FT/probe can actually run
+      train-on-X/test-on-X for any of them.
+- [ ] License note: ExDark is non-commercial-research-use only per its own
+      README — fine for this project's use, flag if that ever changes.
 
 ## Open tasks
 
