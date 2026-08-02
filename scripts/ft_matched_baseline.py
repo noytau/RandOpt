@@ -142,10 +142,6 @@ def main(args):
     print("BASE:", {k: round(v, 4) for k, v in base.items()})
     run.log(base)
 
-    w0 = {n: p.detach().clone() for n, p in engine.backbone.named_parameters()}
-    w0.update({f"head.{n}": p.detach().clone()
-               for n, p in engine.head.named_parameters()})
-
     if args.ft_scope == "all":
         trainable = dict(engine._all_params())
     else:
@@ -155,6 +151,12 @@ def main(args):
         p.requires_grad_(name in trainable)
     print(f"FT scope '{args.ft_scope}': {len(trainable)} trainable tensors "
           f"({sum(p.numel() for p in trainable.values())/1e6:.1f}M params)")
+
+    # only clone the trainable subset's initial weights (not the whole
+    # backbone) -- a full-backbone clone doubles resident memory and is what
+    # OOM'd DINOv3's ViT-7B (27GB resident + 27GB clone > 46GB), even though
+    # the optimizer itself only touches the scoped params
+    w0 = {n: p.detach().clone() for n, p in trainable.items()}
 
     params = list(trainable.values())
     opt = torch.optim.AdamW(params, lr=args.lr, weight_decay=0.0)
