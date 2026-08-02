@@ -143,11 +143,35 @@ suggest. Data lives on Geoffry under `/mnt5/noy/datasets/{raw,manifests}/`.
         datasets (`--dataset all,imagenet,imagenet_c`), N=2000/K=50,
         train/test_samples=1000, wandb run `3nes0koi` (name
         `dinov3-all6-N2000-K50-tr1k-te1k`). ETA ~19-20h from launch.
-      - FT companion run and base-only run on DINOv3: not yet launched (base
-        numbers come for free as part of the RandOpt run above; a real
-        train_samples/last_n_blocks choice for the "final" FT run — beyond the
-        `last_n_blocks=4` smoke test — still needs to be made once the RandOpt
-        run's GPUs free up, since gpu56 is fully committed to it for ~19h).
+      - **Max FT scope on a single 46GB A6000, found empirically** (gpu55,
+        binary search): `last_n_blocks=4` (671M params) and `=5` (839.1M
+        params) both fit; `=6` and `=8` both OOM (43.8-44.0/44.55 GiB used,
+        failing on a last ~64-192MiB alloc). **5 is the real ceiling** —
+        full-layer FT (all 40 blocks, ~107.5GB fp32 AdamW) was never in reach
+        of a single GPU, as expected, and this codebase's FT script has no
+        multi-GPU sharding to pool memory across GPUs.
+      - **Real FT run completed** (gpu55, `last_n_blocks=5`, 5 epochs,
+        train_samples=1000, datasets limited to imagenet/imagenet_c/imagenet_r
+        — gpu55 never got the full shift-suite data prep, only Geoffry/gpu56
+        did): imagenet 88.3%->88.6% (+0.3), imagenet_c 84.1%->84.2% (+0.1),
+        imagenet_r 89.1%->90.0% (+0.9). train_acc hit 99.4% (expected overfit
+        on a 1000-image draw over 5 epochs, matches the DINOv2 FT baseline's
+        known behavior). Ran under `WANDB_MODE=offline` (see network note
+        below) — local run dir `wandb/offline-run-20260802_214233-xh7i9mu9`
+        on gpu55, not yet synced to the dashboard.
+      - **`api.wandb.ai` had a sustained outage** 2026-08-02 ~21:36 onward
+        (>1hr): general internet/DNS/GitHub/`wandb.ai` marketing site all
+        fine, but `api.wandb.ai` specifically timed out on raw TCP — looks
+        W&B-side, not local network. Confirmed the RandOpt run kept computing
+        correctly throughout (worker CPU-time deltas + the local `.wandb`
+        binary file's mtime both proved continuous real progress) — W&B's
+        dashboard showing "crashed" during this window was a stale-heartbeat
+        artifact only; nothing was lost, wandb buffers locally and syncs the
+        backlog once torch reachable (`wandb sync <run_dir>` if it doesn't
+        auto-resume). **Lesson: don't trust `run.state`/`scan_history()` row
+        counts alone during a suspected outage — cross-check the local
+        `wandb/run-*/run-*.wandb` file's mtime and, if the process is a Ray
+        job, worker CPU-time deltas across two snapshots.**
 - [ ] **Examine the raw/manifests directory structure**: imagenet/imagenet_c
       (pre-existing) store raw images directly under `$DATASETS_ROOT/<name>/`
       and their manifest inside the repo (`data/<name>/data.json`); the 4 new
