@@ -80,22 +80,47 @@ suggest. Data lives on Geoffry under `/mnt5/noy/datasets/{raw,manifests}/`.
       script, 4 new `data_handlers` subclasses, `utils/logit_mask.py` — coded
       and unit-tested locally (`tests/test_build_class_index.py`,
       `tests/test_shift_manifest_builder.py`).
-- [ ] Sync `scripts/data_prep/` + `data_handlers/` + `utils/logit_mask.py` +
-      `vision/ssl_engine.py` to Geoffry; build the canonical class index there.
-- [ ] Download + extract all 4 datasets on Geoffry (background job; ES alone
-      is 26 GB).
-- [ ] ImageNet-ES specifically: run `make_shift_manifests.py --dataset
-      imagenet_es --inspect` on the REAL extracted tree first (upstream
-      doesn't fully document the `param_control` nesting), hand-write
-      `_meta/imagenet_es_config.json` (dark-condition predicate, reference-dir
-      names), then build its manifest.
-- [ ] Build + verify manifests for imagenet_r/a/sketch (straightforward,
-      `--dataset all` once downloads land); run `verify_shift_manifests.py`.
-- [ ] Run `zero_shot_sanity.py --dataset all`; report the 4 top-1 numbers and
-      whether the expected difficulty ordering (ES > A > R > Sketch) holds —
-      if badly violated, suspect a label-mapping bug before anything else.
-- [ ] Follow-on (not this pass): wire `finetune`/`randopt` runners to these 4
-      manifests using `utils/logit_mask.py`.
+- [x] Synced to Geoffry, gpu56, AND gpu55; canonical class index built on all 3.
+- [x] Downloaded + extracted all 4 datasets on Geoffry; imagenet_r transferred
+      server-to-server to gpu55+gpu56; imagenet_a/sketch/es transferred
+      server-to-server to gpu56 (2026-08-02) — gpu55 only has imagenet_r so far.
+- [x] ImageNet-ES: inspected the real extracted tree, wrote
+      `_meta/imagenet_es_config.json` (dark=`param_control/l1`, INFERRED not
+      verified against a README — flagged in the config's own `_note` field).
+- [x] Built + verified manifests for all 4 shift datasets on Geoffry and
+      gpu56 (byte-identical output on both hosts, all acceptance checks +
+      determinism pass).
+- [ ] `zero_shot_sanity.py --dataset all` was never actually run standalone —
+      superseded by real `randopt_shift.py` runs instead (see below), but the
+      "4 top-1 numbers, check the difficulty ordering ES>A>R>Sketch" diagnostic
+      itself is still worth running once as a sanity cross-check.
+- [x] `randopt_shift.py` generalized: `--dataset` is now a comma-separated
+      plusarg (any of imagenet/imagenet_c/imagenet_a/r/sketch/es, or `all` =
+      the 4 shift datasets) resolved through one registry — scoring always on
+      clean ImageNet, shared across every named target in one job.
+- [ ] **Examine the raw/manifests directory structure**: imagenet/imagenet_c
+      (pre-existing) store raw images directly under `$DATASETS_ROOT/<name>/`
+      and their manifest inside the repo (`data/<name>/data.json`); the 4 new
+      shift datasets use `$DATASETS_ROOT/raw/<name>/` + `$DATASETS_ROOT/
+      manifests/<name>.json` + a `_meta/` provenance folder. Deliberate at the
+      time (avoid touching the working old pipeline), but worth revisiting —
+      decide whether to migrate imagenet/imagenet_c onto the newer layout, or
+      formally document the two-convention split as permanent.
+- [ ] Multi-engine startup is flaky on Geoffry specifically (7-engine jobs
+      have stalled twice at the `store_base_weights` CPU-clone barrier,
+      seemingly always on physical GPU4 — possibly a flaky/degraded card,
+      not just contention). Root cause not confirmed (`py-spy` needs sudo).
+      gpu55/gpu56 (A6000) have not shown this. Until root-caused, prefer
+      gpu55/gpu56 for multi-engine (num_engines>4) jobs.
+- [ ] Profiled image decode on A6000: GPU utilization sits at 12-37% even at
+      batch_size=128 (huge memory headroom, 46GB cards barely touched) —
+      threaded decode (`load_image_batch`, now parallelized) only bought
+      ~5%, so the real bottleneck is still unidentified (Ray task-dispatch
+      overhead? perturb/restore cost for perturb_target=all's 1.14B params?).
+      Worth profiling properly (py-spy/nsys) if throughput matters more.
+- [ ] Follow-on (not started): wire `finetune`/`linear_probe` runners to
+      these 4 manifests using `utils/logit_mask.py` (only `randopt` is wired
+      up so far, via `randopt_shift.py`).
 
 ## Open tasks
 
