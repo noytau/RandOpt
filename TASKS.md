@@ -98,6 +98,39 @@ suggest. Data lives on Geoffry under `/mnt5/noy/datasets/{raw,manifests}/`.
       plusarg (any of imagenet/imagenet_c/imagenet_a/r/sketch/es, or `all` =
       the 4 shift datasets) resolved through one registry — scoring always on
       clean ImageNet, shared across every named target in one job.
+- [ ] **Run base/FT/RandOpt(N=2000,K=50) on DINOv3, same 6 datasets** (requested
+      2026-08-02). Findings so far, before any run is attempted:
+      - **Blocker needing USER action**: no DINOv3 repo or weights exist on
+        Geoffry/gpu55/gpu56 (checked directly) — weights are Meta-gated, not a
+        public download like DINOv2's. Need either a signed URL from Meta's
+        DINOv3 access request, or to pull the weights from wherever they
+        already lived for the earlier d2/d3 series (`/storage/noy/models/
+        dinov3/` on RunAI, per that series' notes — not checked this session,
+        no direct RunAI access available).
+      - **Dataset code needs no changes**: `--backbone_family dinov3` already
+        works in both `randopt_shift.py`/`ft_matched_baseline.py`; datasets are
+        handled at the manifest/handler layer, backbone-agnostic.
+      - **`ft_matched_baseline.py` needs a real change**: full fp32 AdamW on a
+        7B-param model needs ~112GB GPU RAM (params+grad+2 optimizer moments)
+        — doesn't fit a 46GB A6000. Needs a partial-fine-tune scope (freeze
+        most of the backbone, train only head + last N blocks, mirroring the
+        existing `perturb_target="last_n_blocks"`) before FT can run at all.
+      - **Memory, ViT-7B vs ViT-g**: ~6.4x more params (7B vs 1.1B) -> ~28GB
+        fp32 weights (vs ~4.5GB). Base/RandOpt engine footprint ~28-32GB (fits
+        one A6000, tight); full fp32 FT ~112GB (does not fit one A6000).
+        Geoffry (11GB 2080Ti) is out for DINOv3 entirely, even for base eval.
+      - **CPU RAM caps engine count below 8**: `store_base_weights()` clones
+        to CPU RAM, ~55GB/engine per the earlier d2/d3 series' cluster notes.
+        gpu55/gpu56 have 225GB system RAM -> caps at ~3-4 engines, not 8.
+      - **Real prior timing data** (not a guess): a DINOv3 N=2000/K=50 RandOpt
+        run (`randopt-d3-n2000-k50-tr-intrain1k-te-ic5k`, 2026-07-26) on
+        comparable A6000 hardware with only 2 engines took **17.4h** to
+        actually complete (W&B shows "crashed" but the post-mortem above
+        confirms it finished; only the heartbeat died at teardown). Scaling
+        to ~4 engines (~8.7h) still won't fit "under a day" alongside FT+base
+        at N=2000 — recommend **N=500** (~2.2h at 4 engines) instead, with a
+        real calibration run once weights are available before trusting this
+        extrapolation.
 - [ ] **Examine the raw/manifests directory structure**: imagenet/imagenet_c
       (pre-existing) store raw images directly under `$DATASETS_ROOT/<name>/`
       and their manifest inside the repo (`data/<name>/data.json`); the 4 new
