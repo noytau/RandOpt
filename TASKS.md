@@ -29,6 +29,20 @@ local N=200 scope study ±0.1. Headline: **replicated null within ±0.1pp across
 model scale (1.1B & 6.7B), N (2k/5k), and scoring/eval splits; σ=2e-4 wins
 everywhere** (matches FT displacement σ-equivalent ~2e-4).
 
+**FT matched baseline (2026-08-02, gpu56)** — same data budgets, gradient FT
+(lr 1e-5, 5 epochs, full model) instead of perturbation+selection:
+
+| budget | FT clean Δ | FT IC Δ | RandOpt IC Δ | RandOpt edge |
+|--------|-----------|---------|--------------|--------------|
+| 1k imgs | −1.24 | −1.32 | +0.08 | **+1.4pp** |
+| 5k imgs | −2.70 | −2.10 | +0.10 | **+2.2pp** |
+
+FT memorizes the training draw (train acc 1.0) and damages both clean and
+corrupted accuracy; more data at fixed epochs = larger displacement = more
+damage. Reframes the RandOpt null: at small budgets on an adapted center,
+selection-over-noise is SAFER than gradient descent — it cannot overfit
+weights, only choose among them. (W&B: ft-d2-tr-intrain{1,5}k-*.)
+
 ## d3 post-mortem (2026-08-01)
 
 - d3-n2000 was NOT stuck: it completed fully (results recovered from the W&B
