@@ -53,7 +53,8 @@ _FAMILIES = {
     },
     "dinov3": {
         "repo_env": "DINOV3_DIR",
-        "repo_candidates": ["/mnt5/noy/dinov3", "/storage/noy/dinov3"],
+        "repo_candidates": ["/mnt5/noy/dinov3", "/storage/noy/dinov3",
+                           "/home/noy/repos/dinov3"],
         "default_backbone": "dinov3_vit7b16",
         "weights_path": ("/storage/noy/models/dinov3/"
                          "dinov3_vit7b16_pretrain_lvd1689m-a955f4ea.pth"),

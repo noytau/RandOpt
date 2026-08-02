@@ -47,17 +47,24 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scripts.randopt_imagenet_c import sample_per_class, score  # noqa: E402
 
 # Registry of every FINAL-eval target randopt_shift.py knows how to resolve:
-# manifest (None = the handler's own default_train_path) + which split value
+# manifest (None = the handler's own default_train_path), which split value
 # selects the eval rows from it (most datasets use "test"; the clean-ImageNet
 # val manifest labels every row "train" regardless of role — a leftover of
-# how it was generated for the earlier SSL series).
+# how it was generated for the earlier SSL series), and which transform its
+# images need. imagenet_c is the ONE dataset that ships pre-cropped 224x224
+# images (Hendrycks' ImageNet-C protocol) -> "presized224" (normalize only);
+# every other target here is raw variable-size JPEGs -> "official_resize"
+# (Resize 256 -> CenterCrop 224). Getting this wrong isn't cosmetic: applying
+# official_resize to an already-224x224 image means resizing UP to 256 then
+# cropping back down, an unnecessary blur round-trip.
 _DATASET_REGISTRY = {
-    "imagenet": {"manifest": "data/imagenet_val10/data.json", "split": "train"},
-    "imagenet_c": {"manifest": None, "split": "test"},
-    "imagenet_a": {"manifest": None, "split": "test"},
-    "imagenet_r": {"manifest": None, "split": "test"},
-    "imagenet_sketch": {"manifest": None, "split": "test"},
-    "imagenet_es": {"manifest": None, "split": "test"},
+    "imagenet": {"manifest": "data/imagenet_val10/data.json", "split": "train",
+                 "input_mode": "official_resize"},
+    "imagenet_c": {"manifest": None, "split": "test", "input_mode": "presized224"},
+    "imagenet_a": {"manifest": None, "split": "test", "input_mode": "official_resize"},
+    "imagenet_r": {"manifest": None, "split": "test", "input_mode": "official_resize"},
+    "imagenet_sketch": {"manifest": None, "split": "test", "input_mode": "official_resize"},
+    "imagenet_es": {"manifest": None, "split": "test", "input_mode": "official_resize"},
 }
 _SHIFT_DATASETS = ["imagenet_a", "imagenet_r", "imagenet_sketch", "imagenet_es"]
 
@@ -101,8 +108,6 @@ def parse_args():
                     help="official_resize for raw clean-ImageNet JPEGs "
                          "(variable size); presized224 if --train_manifest "
                          "ever points at a pre-cropped set")
-    p.add_argument("--test_input_mode", default="official_resize",
-                    choices=["presized224", "official_resize"])
     p.add_argument("--backbone_family", default="dinov2", choices=["dinov2", "dinov3"])
     p.add_argument("--backbone_name", default=None)
     p.add_argument("--weights_path", default=None)
@@ -298,8 +303,10 @@ def main(args):
         mask = load_logit_mask(name)
         items = sample_per_class(h.load_data(manifest, split=reg["split"]),
                                  args.test_samples, rng)
-        targets[name] = {"handler": h, "mask": mask, "items": items}
-        print(f"eval target ({name}, split={reg['split']}): {manifest} | "
+        targets[name] = {"handler": h, "mask": mask, "items": items,
+                         "input_mode": reg["input_mode"]}
+        print(f"eval target ({name}, split={reg['split']}, "
+              f"input_mode={reg['input_mode']}): {manifest} | "
               f"logit_mask: {'None (full 1000-way)' if mask is None else f'{int((mask == 0).sum())}-class subset'} "
               f"| n={len(items)}")
 
@@ -332,7 +339,7 @@ def main(args):
     for name, info in targets.items():
         base_by_name[name] = score(info["handler"],
                                    ray.get(engines[0].predict.remote(
-                                       info["items"], args.test_input_mode, info["mask"])),
+                                       info["items"], info["input_mode"], info["mask"])),
                                    info["items"])
     print(f"BASE: train_reward={base_train:.4f} (clean ImageNet) | "
           + " | ".join(f"{name}={acc:.4f}" for name, acc in base_by_name.items())
@@ -358,7 +365,7 @@ def main(args):
     # only the final eval touches any --dataset target; every eval set is
     # perturbed only ONCE per ensemble batch regardless of how many targets
     eval_sets = [{"name": name, "items": info["items"], "logit_mask": info["mask"],
-                  "input_mode": args.test_input_mode, "base": base_by_name[name]}
+                  "input_mode": info["input_mode"], "base": base_by_name[name]}
                  for name, info in targets.items()]
     ensemble = run_ensemble_multi(args, engines, top_k_perturbs, eval_sets, wandb_run)
 
