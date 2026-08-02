@@ -56,6 +56,15 @@ def parse_args():
     p.add_argument("--backbone_family", default="dinov2")
     p.add_argument("--weights_path", default=None)
     p.add_argument("--head_path", default=None)
+    p.add_argument("--ft_scope", default="all", choices=["all", "head", "last_n_blocks"],
+                    help="which params AdamW updates — same scope semantics as "
+                         "RandOpt's perturb_target, so FT and RandOpt optimize/"
+                         "perturb the identical param subset for a fair "
+                         "comparison. 'all' (default) full-model FT needs ~24GB "
+                         "for ViT-g; DINOv3's ViT-7B needs last_n_blocks to fit "
+                         "a single GPU (full fp32 AdamW would need ~108GB).")
+    p.add_argument("--ft_last_n_blocks", type=int, default=0,
+                    help="only used when --ft_scope last_n_blocks")
     p.add_argument("--lr", type=float, default=1e-5)
     p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--batch_size", type=int, default=16)
@@ -137,8 +146,17 @@ def main(args):
     w0.update({f"head.{n}": p.detach().clone()
                for n, p in engine.head.named_parameters()})
 
-    params = (list(engine.backbone.parameters())
-              + list(engine.head.parameters()))
+    if args.ft_scope == "all":
+        trainable = dict(engine._all_params())
+    else:
+        engine.set_perturb_scope(args.ft_scope, args.ft_last_n_blocks)
+        trainable = dict(engine._perturb_params())
+    for name, p in engine._all_params():
+        p.requires_grad_(name in trainable)
+    print(f"FT scope '{args.ft_scope}': {len(trainable)} trainable tensors "
+          f"({sum(p.numel() for p in trainable.values())/1e6:.1f}M params)")
+
+    params = list(trainable.values())
     opt = torch.optim.AdamW(params, lr=args.lr, weight_decay=0.0)
     steps_per_epoch = (len(train_items) + args.batch_size - 1) // args.batch_size
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -170,12 +188,12 @@ def main(args):
         print(f"epoch {epoch + 1}/{args.epochs} loss={np.mean(losses):.4f}")
         run.log({"ft/epoch": epoch + 1, "ft/train_loss": float(np.mean(losses))})
 
-    # weight displacement vs base -> comparable to RandOpt's sigma*sqrt(P)
+    # weight displacement vs base -> comparable to RandOpt's sigma*sqrt(P);
+    # normalized over the SAME trainable subset RandOpt perturbs for this
+    # scope, not all params (else sigma_equiv would be deflated for scoped FT)
     with torch.no_grad():
         sq, n_par = 0.0, 0
-        cur = {n: p for n, p in engine.backbone.named_parameters()}
-        cur.update({f"head.{n}": p for n, p in engine.head.named_parameters()})
-        for n, p in cur.items():
+        for n, p in trainable.items():
             sq += (p.detach() - w0[n]).float().pow(2).sum().item()
             n_par += p.numel()
     delta_w = sq ** 0.5
