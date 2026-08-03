@@ -150,6 +150,32 @@ suggest. Data lives on Geoffry under `/mnt5/noy/datasets/{raw,manifests}/`.
         full-layer FT (all 40 blocks, ~107.5GB fp32 AdamW) was never in reach
         of a single GPU, as expected, and this codebase's FT script has no
         multi-GPU sharding to pool memory across GPUs.
+      - **Removed the `w0`/`delta_w`/`sigma_equiv` weight-displacement
+        tracking from `ft_matched_baseline.py`** (2026-08-03, per user
+        request) — the `w0` GPU-resident clone was blocking `ft_scope=all`
+        from even starting (OOM'd before the optimizer was built; see repro
+        run `dinov3-ft-all-layers-OOM-repro`, `ft_matched_baseline.py:159`
+        pre-removal). Even with `w0` fixed (e.g. cloned to CPU), full-layer
+        FT still can't run on one GPU — AdamW's own state for 6.72B params
+        needs ~80.6GB on top of the 26.9GB resident weights. Real fixes if
+        full-layer FT becomes worth pursuing: a CPU-offloaded optimizer
+        (bitsandbytes `PagedAdamW32bit` / DeepSpeed ZeRO-Offload, works on
+        one GPU but PCIe-bound per step) or real FSDP/ZeRO-3 sharding across
+        3+ GPUs (the architecturally correct fix, real engineering lift —
+        this script currently has zero distributed-training scaffolding).
+      - [ ] **TODO: revisit comparing RandOpt's `sigma` to FT's weight
+        displacement.** The removed `sigma_equiv = delta_w / sqrt(P)` metric
+        answered "what constant per-parameter sigma would a random
+        perturbation need to produce the same L2 displacement FT's gradient
+        descent found?" — letting you ask whether FT needed to move further
+        or less far than RandOpt's best `sigma` to get its accuracy gain
+        (direct evidence for/against the "many good solutions densely packed
+        near the pretrained weights" hypothesis this whole project tests).
+        Worth re-adding once `ft_scope=all` actually runs (via one of the
+        fixes above) — re-implement the snapshot on CPU
+        (`p.detach().cpu().clone()`, matching `SSLEngineImpl.
+        store_base_weights()`'s existing pattern) so it doesn't reintroduce
+        the OOM this removal fixed.
       - **Real FT run completed** (gpu55, `last_n_blocks=5`, 5 epochs,
         train_samples=1000, datasets limited to imagenet/imagenet_c/imagenet_r
         — gpu55 never got the full shift-suite data prep, only Geoffry/gpu56

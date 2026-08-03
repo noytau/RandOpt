@@ -152,12 +152,6 @@ def main(args):
     print(f"FT scope '{args.ft_scope}': {len(trainable)} trainable tensors "
           f"({sum(p.numel() for p in trainable.values())/1e6:.1f}M params)")
 
-    # only clone the trainable subset's initial weights (not the whole
-    # backbone) -- a full-backbone clone doubles resident memory and is what
-    # OOM'd DINOv3's ViT-7B (27GB resident + 27GB clone > 46GB), even though
-    # the optimizer itself only touches the scoped params
-    w0 = {n: p.detach().clone() for n, p in trainable.items()}
-
     params = list(trainable.values())
     opt = torch.optim.AdamW(params, lr=args.lr, weight_decay=0.0)
     steps_per_epoch = (len(train_items) + args.batch_size - 1) // args.batch_size
@@ -190,20 +184,8 @@ def main(args):
         print(f"epoch {epoch + 1}/{args.epochs} loss={np.mean(losses):.4f}")
         run.log({"ft/epoch": epoch + 1, "ft/train_loss": float(np.mean(losses))})
 
-    # weight displacement vs base -> comparable to RandOpt's sigma*sqrt(P);
-    # normalized over the SAME trainable subset RandOpt perturbs for this
-    # scope, not all params (else sigma_equiv would be deflated for scoped FT)
-    with torch.no_grad():
-        sq, n_par = 0.0, 0
-        for n, p in trainable.items():
-            sq += (p.detach() - w0[n]).float().pow(2).sum().item()
-            n_par += p.numel()
-    delta_w = sq ** 0.5
-
     final = {"ft/train_acc": evaluate(engine, train_items, "official_resize",
-                                      train_handler),
-             "ft/delta_w": delta_w,
-             "ft/sigma_equiv": delta_w / (n_par ** 0.5)}
+                                      train_handler)}
     for name, info in targets.items():
         acc = evaluate(engine, info["items"], info["input_mode"],
                        info["handler"], info["mask"])
