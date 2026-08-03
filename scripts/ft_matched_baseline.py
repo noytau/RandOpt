@@ -159,14 +159,33 @@ def main(args):
     # by a real test still NOT sufficient alone (OOM'd inside opt.step(),
     # allocating the 4th of 4 required tensors, 44.51/44.55GiB in use).
     # 8-bit optimizer moments (bitsandbytes) additionally cut exp_avg/
-    # exp_avg_sq from 2 bytes/param (bf16) to ~1 byte/param each, bringing
-    # the total to ~40.3GB -- combined with bf16 weights+grad, this is the
-    # experiment: does the remaining ~4.2GB cover activations for all 40
-    # trainable blocks at batch_size=16?
+    # exp_avg_sq to ~1 byte/param each (~40.3GB) -- but a real test showed
+    # the actual wall is elsewhere: it OOM'd mid-forward-pass, inside one
+    # block's MLP, at ~40.8GB used, *before* the optimizer state was ever
+    # touched. With every one of the 40 blocks trainable, autograd must
+    # retain EVERY block's activations for backward (unlike last_n_blocks
+    # scope, where the frozen early blocks' outputs don't require_grad and
+    # their activations are never saved at all) -- that's tens of GB right
+    # there, dwarfing the weight/optimizer costs above. Gradient
+    # checkpointing addresses exactly this: recompute each block's forward
+    # during backward instead of keeping all 40 blocks' activations
+    # resident at once. Can't edit the pinned dinov3 repo's block-loop code
+    # (CLAUDE.md: never vendor/edit the official clone) -- so each block's
+    # own `forward` is monkey-patched at runtime instead, from here.
     model_dtype = torch.bfloat16 if args.ft_scope == "all" else torch.float32
     if model_dtype is torch.bfloat16:
         engine.backbone.to(model_dtype)
         engine.head.to(model_dtype)
+    if args.ft_scope == "all":
+        import torch.utils.checkpoint as ckpt
+
+        def _checkpointed(fwd):
+            def wrapped(*a, **kw):
+                return ckpt.checkpoint(fwd, *a, use_reentrant=False, **kw)
+            return wrapped
+
+        for block in engine.backbone.blocks:
+            block.forward = _checkpointed(block.forward)
 
     params = list(trainable.values())
     if args.ft_scope == "all":
