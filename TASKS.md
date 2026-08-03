@@ -231,12 +231,20 @@ suggest. Data lives on Geoffry under `/mnt5/noy/datasets/{raw,manifests}/`.
         show damage at all. `delta_w` now lets that be answered directly
         instead of guessed at — compare DINOv3's displacement at a given lr
         against DINOv2's already-measured `delta_w=3.27`.
-      - [ ] **TODO: LR sweep on DINOv3 full-layer FT** to test the above —
-        1e-5 (have: 0.0 to +0.7pt everywhere, no damage), 1e-4 (in
-        progress), possibly 5e-4/1e-3 if 1e-4 still shows no damage. Watch
-        `imagenet_es` closely — DINOv2's worst casualty (-8.6pt) is
-        DINOv3's flattest result (0.0pt), the most sensitive indicator of
-        whether the DINOv2-style damage pattern reappears at higher lr.
+      - [x] **LR sweep result (2026-08-04): confirmed — DINOv3 isn't more
+        robust, lr=1e-5 was just too small a displacement to show damage.**
+        `dinov3-ft-all-layers-all6-lr1e-4` (10x higher lr, otherwise
+        identical config): `delta_w=45.6` (~14x DINOv2's measured
+        `delta_w=3.27`), `train_acc=1.0` (full memorization, same
+        overfitting signature as DINOv2). Damage reappears and is *worse*
+        than DINOv2's: imagenet -0.7 (was +0.3), imagenet_c -1.3 (was +0.6),
+        imagenet_a -2.37 (was +0.25), **imagenet_es -21.2** (was 0.0 —
+        DINOv2's worst casualty at this dataset was -8.6, this is 2.5x
+        worse). imagenet_r still +1.0, imagenet_sketch flat at 0.0. Same
+        gradient-descent-overfits-a-random-selection-can't story as DINOv2,
+        just needed a big enough displacement to surface at this model
+        scale — the earlier "DINOv3 doesn't get damaged" result was an
+        lr artifact, not a real scale-dependent finding.
       - **Real FT run completed** (gpu55, `last_n_blocks=5`, 5 epochs,
         train_samples=1000, datasets limited to imagenet/imagenet_c/imagenet_r
         — gpu55 never got the full shift-suite data prep, only Geoffry/gpu56
