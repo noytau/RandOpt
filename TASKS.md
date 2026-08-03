@@ -163,16 +163,46 @@ suggest. Data lives on Geoffry under `/mnt5/noy/datasets/{raw,manifests}/`.
         one GPU but PCIe-bound per step) or real FSDP/ZeRO-3 sharding across
         3+ GPUs (the architecturally correct fix, real engineering lift —
         this script currently has zero distributed-training scaffolding).
+      - **`ft_scope=all` (full 6.72B-param FT) SOLVED on a single 46GB A6000**
+        (2026-08-03) via three stacked fixes, each one found necessary by a
+        real crash from the previous attempt — no guessing:
+        1. **bf16-stored weights+grad** (`engine.backbone.to(bfloat16)`,
+           `predict()` in `ssl_engine.py` made dtype-agnostic to not break
+           the existing fp32 paths) — halves fp32's 107.5GB total need to
+           ~53.8GB. Confirmed insufficient alone by a real run: OOM'd
+           *inside* `opt.step()`, allocating the 4th of 4 required tensors
+           (`exp_avg_sq`) at 44.51/44.55GiB.
+        2. **8-bit optimizer moments** (`bitsandbytes.optim.AdamW8bit`,
+           scoped to `ft_scope=="all"` only) — cuts `exp_avg`/`exp_avg_sq`
+           to ~1 byte/param, ~40.3GB total. Real test revealed this wasn't
+           actually the dominant cost: it OOM'd *mid-forward-pass* inside a
+           block's MLP at ~40.8GB, *before* the optimizer state was ever
+           touched — meaning activations, not optimizer state, were the
+           real remaining wall.
+        3. **Gradient checkpointing**, monkey-patched onto each
+           `engine.backbone.blocks[i].forward` at runtime (can't edit the
+           pinned dinov3 repo's block-loop code per CLAUDE.md) — trades
+           compute for memory by recomputing each block's activations
+           during backward instead of keeping all 40 blocks' activations
+           resident at once (unlike `last_n_blocks` scope, where the frozen
+           early blocks' outputs never require_grad and their activations
+           are never saved — full-layer FT gets none of that savings for
+           free, which is why this step was the one that actually closed
+           the gap). **With all three combined: real, complete 1-epoch
+           full-layer FT run finished clean** — `dinov3-ft-all-layers-ckpt-
+           repro`, imagenet_c base 85.3%→85.2% (-0.1pt after 1 epoch,
+           lr=1e-5, batch_size=16 — expected near-zero movement, this was a
+           feasibility check not a real experiment).
       - [ ] **TODO: revisit comparing RandOpt's `sigma` to FT's weight
-        displacement.** The removed `sigma_equiv = delta_w / sqrt(P)` metric
-        answered "what constant per-parameter sigma would a random
-        perturbation need to produce the same L2 displacement FT's gradient
-        descent found?" — letting you ask whether FT needed to move further
-        or less far than RandOpt's best `sigma` to get its accuracy gain
-        (direct evidence for/against the "many good solutions densely packed
-        near the pretrained weights" hypothesis this whole project tests).
-        Worth re-adding once `ft_scope=all` actually runs (via one of the
-        fixes above) — re-implement the snapshot on CPU
+        displacement**, now that `ft_scope=all` actually runs. The removed
+        `sigma_equiv = delta_w / sqrt(P)` metric answered "what constant
+        per-parameter sigma would a random perturbation need to produce the
+        same L2 displacement FT's gradient descent found?" — letting you ask
+        whether FT needed to move further or less far than RandOpt's best
+        `sigma` to get its accuracy gain (direct evidence for/against the
+        "many good solutions densely packed near the pretrained weights"
+        hypothesis this whole project tests). Re-implement the snapshot on
+        CPU
         (`p.detach().cpu().clone()`, matching `SSLEngineImpl.
         store_base_weights()`'s existing pattern) so it doesn't reintroduce
         the OOM this removal fixed.
