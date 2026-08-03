@@ -27,7 +27,7 @@ import sys
 
 import numpy as np
 import torch
-import torch.nn.functional as F
+import torch.nn as nn
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -154,6 +154,7 @@ def main(args):
 
     params = list(trainable.values())
     opt = torch.optim.AdamW(params, lr=args.lr, weight_decay=0.0)
+    criterion = nn.CrossEntropyLoss()
     steps_per_epoch = (len(train_items) + args.batch_size - 1) // args.batch_size
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(
         opt, T_max=args.epochs * steps_per_epoch)
@@ -175,7 +176,7 @@ def main(args):
                 feat = torch.cat([f_out["x_norm_clstoken"],
                                   f_out["x_norm_patchtokens"].mean(dim=1)], dim=1)
                 logits = engine.head(feat.float())
-                loss = F.cross_entropy(logits, labels)
+                loss = criterion(logits, labels)
             opt.zero_grad(set_to_none=True)
             loss.backward()
             opt.step()
