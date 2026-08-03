@@ -80,11 +80,18 @@ def dinov2_repo_dir() -> str:  # kept for existing callers
 
 
 class SSLEngineImpl:
-    """DINOv2 backbone + released linear head with RandOpt weight perturbation.
+    """DINOv2 backbone + linear head with RandOpt weight perturbation.
 
     perturb_target: "all" | "head" | "last_n_blocks"
     input_mode:     "presized224" (ImageNet-C protocol: normalize only)
                   | "official_resize" (Resize 256 -> CenterCrop 224, clean val)
+    num_classes:    1000 (default) loads Meta's released, pretrained
+                    ImageNet-1k head. Any other value builds a fresh
+                    nn.Linear head instead — loaded from `head_path` if given
+                    (a locally-fit checkpoint, see vision/head_probe.py), else
+                    left randomly initialized (the starting point for fitting
+                    one from scratch on a dataset with its own private label
+                    space, e.g. exdark's 12 classes).
     """
 
     def __init__(
@@ -94,6 +101,7 @@ class SSLEngineImpl:
         weights_path: str = None,
         head_path: str = None,
         head_url: str = _HEAD_URL,
+        num_classes: int = 1000,
         inference_batch_size: int = 16,
         perturb_target: str = "all",
         last_n_blocks: int = 0,
@@ -118,18 +126,27 @@ class SSLEngineImpl:
         self.backbone = self.backbone.to(self.device).eval()
         embed_dim = self.backbone.embed_dim
 
-        self.head = nn.Linear(2 * embed_dim, 1000)
-        if backbone_family == "dinov2":
-            sd = torch.hub.load_state_dict_from_url(head_url,
-                                                    map_location="cpu")
-        else:
-            sd = torch.load(head_path or cfg["head_path"], map_location="cpu")
-            if not isinstance(sd, dict) or "weight" not in sd:
-                # unwrap {"linear_head": {...}} / prefixed keys if present
-                sd = sd.get("linear_head", sd) if isinstance(sd, dict) else sd
-                sd = {k.split("linear_head.")[-1]: v for k, v in sd.items()}
-            sd = {k: v.float() for k, v in sd.items()}  # head ships fp16
-        self.head.load_state_dict(sd)
+        self.head = nn.Linear(2 * embed_dim, num_classes)
+        if num_classes == 1000:
+            # released, pretrained ImageNet-1k head — unchanged default path
+            if backbone_family == "dinov2":
+                sd = torch.hub.load_state_dict_from_url(head_url,
+                                                        map_location="cpu")
+            else:
+                sd = torch.load(head_path or cfg["head_path"], map_location="cpu")
+                if not isinstance(sd, dict) or "weight" not in sd:
+                    # unwrap {"linear_head": {...}} / prefixed keys if present
+                    sd = sd.get("linear_head", sd) if isinstance(sd, dict) else sd
+                    sd = {k.split("linear_head.")[-1]: v for k, v in sd.items()}
+                sd = {k: v.float() for k, v in sd.items()}  # head ships fp16
+            self.head.load_state_dict(sd)
+        elif head_path:
+            # a locally-fit head for a private label space (vision/head_probe.py
+            # + scripts/fit_head.py) — plain state_dict, no unwrapping needed
+            # since we wrote it ourselves.
+            self.head.load_state_dict(torch.load(head_path, map_location="cpu"))
+        # else: num_classes != 1000 and no head_path -> nn.Linear's default
+        # random init, used by fit_linear_head() to train a fresh head.
         self.head = self.head.to(self.device).eval()
 
         # crop is NOT needed for ImageNet-C (Hendrycks ships presized 224x224:
@@ -172,22 +189,25 @@ class SSLEngineImpl:
 
         input_mode overrides the engine default for this call (e.g. score on
         clean ImageNet with "official_resize", test on IC with "presized224").
-        logit_mask (optional): additive {0, -inf} mask over the 1000 head
+        logit_mask (optional): additive {0, -inf} mask over the head's
         outputs, from utils.logit_mask.build_mask — restricts predictions to
         a dataset's class subset (ImageNet-A/R/ES) without retraining a head.
-        None (default) preserves unmasked, full-1000-way behavior.
+        None (default) is correct both for unmasked full-1000-way behavior
+        AND for a private-label-space head (e.g. exdark) — there's nothing
+        to mask when the head's own output width already IS the class count.
         """
         from data_handlers.imagenet_c import load_image_batch
         transform = self.transforms[input_mode or self.default_input_mode]
         preds: List[str] = []
+        model_dtype = next(self.backbone.parameters()).dtype
         for i in range(0, len(items), self.inference_batch_size):
             batch = load_image_batch(items[i:i + self.inference_batch_size],
-                                     transform).to(self.device)
+                                     transform).to(self.device, dtype=model_dtype)
             with torch.no_grad():
                 f = self.backbone.forward_features(batch)
                 feat = torch.cat([f["x_norm_clstoken"],
                                   f["x_norm_patchtokens"].mean(dim=1)], dim=1)
-                logits = self.head(feat.float())
+                logits = self.head(feat.to(self.head.weight.dtype))
                 if logit_mask is not None:
                     logits = logits + logit_mask.to(logits.device)
                 labels = logits.argmax(dim=1).cpu().tolist()

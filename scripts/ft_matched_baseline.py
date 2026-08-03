@@ -152,6 +152,17 @@ def main(args):
     print(f"FT scope '{args.ft_scope}': {len(trainable)} trainable tensors "
           f"({sum(p.numel() for p in trainable.values())/1e6:.1f}M params)")
 
+    # ft_scope=all stores weights+grad+optimizer moments in fp32 (16 bytes/
+    # param total) -- 6.72B backbone params means ~107.5GB, doesn't fit a
+    # 46GB GPU even before considering activations. bf16 storage halves
+    # every one of those four tensors (8 bytes/param, ~53.8GB) -- real
+    # savings, but NOT sufficient alone (still > 44.55GB usable); combine
+    # with CPU offload for full-layer FT to actually fit.
+    model_dtype = torch.bfloat16 if args.ft_scope == "all" else torch.float32
+    if model_dtype is torch.bfloat16:
+        engine.backbone.to(model_dtype)
+        engine.head.to(model_dtype)
+
     params = list(trainable.values())
     opt = torch.optim.AdamW(params, lr=args.lr, weight_decay=0.0)
     criterion = nn.CrossEntropyLoss()
@@ -169,13 +180,13 @@ def main(args):
         for i in range(0, len(order), args.batch_size):
             idx = order[i:i + args.batch_size]
             batch = load_image_batch([train_items[j] for j in idx],
-                                     transform).to(device)
+                                     transform).to(device, dtype=model_dtype)
             labels = torch.tensor([labels_all[j] for j in idx], device=device)
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 f_out = engine.backbone.forward_features(batch)
                 feat = torch.cat([f_out["x_norm_clstoken"],
                                   f_out["x_norm_patchtokens"].mean(dim=1)], dim=1)
-                logits = engine.head(feat.float())
+                logits = engine.head(feat.to(engine.head.weight.dtype))
                 loss = criterion(logits, labels)
             opt.zero_grad(set_to_none=True)
             loss.backward()
