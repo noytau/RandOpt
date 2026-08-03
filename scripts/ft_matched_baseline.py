@@ -187,6 +187,11 @@ def main(args):
         for block in engine.backbone.blocks:
             block.forward = _checkpointed(block.forward)
 
+    # snapshot on CPU, not GPU (matches SSLEngineImpl.store_base_weights'
+    # existing pattern) -- a GPU-resident clone of the whole trainable set
+    # is exactly what OOM'd this scope before the w0 line was removed
+    w0 = {n: p.detach().cpu().clone() for n, p in trainable.items()}
+
     params = list(trainable.values())
     if args.ft_scope == "all":
         import bitsandbytes as bnb
@@ -224,8 +229,21 @@ def main(args):
         print(f"epoch {epoch + 1}/{args.epochs} loss={np.mean(losses):.4f}")
         run.log({"ft/epoch": epoch + 1, "ft/train_loss": float(np.mean(losses))})
 
+    # weight displacement vs base -> comparable to RandOpt's sigma*sqrt(P)
+    # and to other FT runs' delta_w (e.g. DINOv2 full-model FT: 3.27).
+    # w0 lives on CPU; pull each trainable tensor back to CPU to diff so
+    # this never touches GPU memory.
+    with torch.no_grad():
+        sq, n_par = 0.0, 0
+        for n, p in trainable.items():
+            sq += (p.detach().cpu().float() - w0[n].float()).pow(2).sum().item()
+            n_par += p.numel()
+    delta_w = sq ** 0.5
+
     final = {"ft/train_acc": evaluate(engine, train_items, "official_resize",
-                                      train_handler)}
+                                      train_handler),
+             "ft/delta_w": delta_w,
+             "ft/sigma_equiv": delta_w / (n_par ** 0.5)}
     for name, info in targets.items():
         acc = evaluate(engine, info["items"], info["input_mode"],
                        info["handler"], info["mask"])

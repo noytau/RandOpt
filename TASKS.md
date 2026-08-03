@@ -219,19 +219,24 @@ suggest. Data lives on Geoffry under `/mnt5/noy/datasets/{raw,manifests}/`.
         train/test_samples=1000, 5 engines (RandOpt), batch_size=16 (FT).
         Wandb: `dinov3-ft-all-layers-all6-real`, `dinov3-ft-all6-blocks5-
         tr1k`, `dinov3-all6-N2000-K50-tr1k-te1k`.
-      - [ ] **TODO: revisit comparing RandOpt's `sigma` to FT's weight
-        displacement**, now that `ft_scope=all` actually runs. The removed
-        `sigma_equiv = delta_w / sqrt(P)` metric answered "what constant
-        per-parameter sigma would a random perturbation need to produce the
-        same L2 displacement FT's gradient descent found?" — letting you ask
-        whether FT needed to move further or less far than RandOpt's best
-        `sigma` to get its accuracy gain (direct evidence for/against the
-        "many good solutions densely packed near the pretrained weights"
-        hypothesis this whole project tests). Re-implement the snapshot on
-        CPU
-        (`p.detach().cpu().clone()`, matching `SSLEngineImpl.
-        store_base_weights()`'s existing pattern) so it doesn't reintroduce
-        the OOM this removal fixed.
+      - [x] **`delta_w`/`sigma_equiv` re-added** (2026-08-04) — `w0` snapshot
+        now clones to CPU (`p.detach().cpu().clone()`, matching
+        `SSLEngineImpl.store_base_weights()`'s pattern), diffed back on CPU
+        too, so it never touches GPU memory regardless of scope. Motivation:
+        DINOv2's full-model FT and DINOv3's both used the same `lr=1e-5`,
+        but Adam's update rule normalizes per-parameter step size roughly
+        independent of total param count — so "same lr" isn't obviously
+        "same push," and the milder/positive DINOv3 result could mean
+        genuine robustness, or just too small a displacement at this lr to
+        show damage at all. `delta_w` now lets that be answered directly
+        instead of guessed at — compare DINOv3's displacement at a given lr
+        against DINOv2's already-measured `delta_w=3.27`.
+      - [ ] **TODO: LR sweep on DINOv3 full-layer FT** to test the above —
+        1e-5 (have: 0.0 to +0.7pt everywhere, no damage), 1e-4 (in
+        progress), possibly 5e-4/1e-3 if 1e-4 still shows no damage. Watch
+        `imagenet_es` closely — DINOv2's worst casualty (-8.6pt) is
+        DINOv3's flattest result (0.0pt), the most sensitive indicator of
+        whether the DINOv2-style damage pattern reappears at higher lr.
       - **Real FT run completed** (gpu55, `last_n_blocks=5`, 5 epochs,
         train_samples=1000, datasets limited to imagenet/imagenet_c/imagenet_r
         — gpu55 never got the full shift-suite data prep, only Geoffry/gpu56
