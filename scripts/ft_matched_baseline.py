@@ -155,16 +155,25 @@ def main(args):
     # ft_scope=all stores weights+grad+optimizer moments in fp32 (16 bytes/
     # param total) -- 6.72B backbone params means ~107.5GB, doesn't fit a
     # 46GB GPU even before considering activations. bf16 storage halves
-    # every one of those four tensors (8 bytes/param, ~53.8GB) -- real
-    # savings, but NOT sufficient alone (still > 44.55GB usable); combine
-    # with CPU offload for full-layer FT to actually fit.
+    # every one of those four tensors (8 bytes/param, ~53.8GB) -- confirmed
+    # by a real test still NOT sufficient alone (OOM'd inside opt.step(),
+    # allocating the 4th of 4 required tensors, 44.51/44.55GiB in use).
+    # 8-bit optimizer moments (bitsandbytes) additionally cut exp_avg/
+    # exp_avg_sq from 2 bytes/param (bf16) to ~1 byte/param each, bringing
+    # the total to ~40.3GB -- combined with bf16 weights+grad, this is the
+    # experiment: does the remaining ~4.2GB cover activations for all 40
+    # trainable blocks at batch_size=16?
     model_dtype = torch.bfloat16 if args.ft_scope == "all" else torch.float32
     if model_dtype is torch.bfloat16:
         engine.backbone.to(model_dtype)
         engine.head.to(model_dtype)
 
     params = list(trainable.values())
-    opt = torch.optim.AdamW(params, lr=args.lr, weight_decay=0.0)
+    if args.ft_scope == "all":
+        import bitsandbytes as bnb
+        opt = bnb.optim.AdamW8bit(params, lr=args.lr, weight_decay=0.0)
+    else:
+        opt = torch.optim.AdamW(params, lr=args.lr, weight_decay=0.0)
     criterion = nn.CrossEntropyLoss()
     steps_per_epoch = (len(train_items) + args.batch_size - 1) // args.batch_size
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(
