@@ -193,6 +193,32 @@ suggest. Data lives on Geoffry under `/mnt5/noy/datasets/{raw,manifests}/`.
            repro`, imagenet_c base 85.3%→85.2% (-0.1pt after 1 epoch,
            lr=1e-5, batch_size=16 — expected near-zero movement, this was a
            feasibility check not a real experiment).
+      - [x] **Real full-layer FT run, all 6 datasets, 5 epochs, N=2000/K=50
+        RandOpt run — all three finished 2026-08-03.** Complete comparison:
+
+        | Dataset | Base | FT `last_n_blocks=5` (839M) | FT `all` (6.72B) | RandOpt N=2000/K=50 |
+        |---|---|---|---|---|
+        | imagenet | 87.5% | +0.9 | +0.3 | -0.2 |
+        | imagenet_c | 85.1% | +0.1 | +0.6 | -0.1 |
+        | imagenet_a | 79.8% | +1.0 | +0.25 | 0.0 |
+        | imagenet_r | 88.6% | +1.0 | +0.7 | -0.1 |
+        | imagenet_sketch | 69.5% | +0.8 | +0.1 | 0.0 |
+        | imagenet_es | 83.1% | 0.0 | 0.0 | +0.2 |
+
+        Two findings worth flagging: (1) RandOpt is flat/noise here (±0.2pt
+        max) while both FT variants show small, consistent positive gains —
+        the *opposite* of the DINOv2 pattern above (FT damages, RandOpt
+        holds flat and wins by comparison); for DINOv3 at this N/sigma,
+        RandOpt has nothing to "win" against, gradient descent finds real
+        (if small) improvements random search doesn't. (2) Scoped FT
+        (`last_n_blocks=5`, 839M params) beats full FT (`all`, 6.72B params)
+        on 4/6 datasets at the same lr/epochs, despite training 8x fewer
+        params — not explained, just observed; plausibly the same nominal
+        step size produces a larger effective per-parameter update when
+        concentrated in fewer params. `--dataset all,imagenet,imagenet_c`,
+        train/test_samples=1000, 5 engines (RandOpt), batch_size=16 (FT).
+        Wandb: `dinov3-ft-all-layers-all6-real`, `dinov3-ft-all6-blocks5-
+        tr1k`, `dinov3-all6-N2000-K50-tr1k-te1k`.
       - [ ] **TODO: revisit comparing RandOpt's `sigma` to FT's weight
         displacement**, now that `ft_scope=all` actually runs. The removed
         `sigma_equiv = delta_w / sqrt(P)` metric answered "what constant
