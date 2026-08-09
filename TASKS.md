@@ -341,6 +341,52 @@ dataset, separately from the imagenet_c/a/r/sketch/es shift battery above.
 - [ ] License note: ExDark is non-commercial-research-use only per its own
       README — fine for this project's use, flag if that ever changes.
 
+## Multi-step perturbation + layer-scope follow-on (added 2026-08-09)
+
+Motivation: the DINOv3 N=2000/K=50 real run (table above) showed RandOpt flat
+(±0.2pt) while FT found small real gains — user's hypothesis is that a single
+perturbation step may not shift the model far enough at this sigma; chaining
+P perturbations (same sigma each step, only the chain's *final* state scored)
+might reach a more informative region. Second follow-on: scope perturbations
+to only the top T% of blocks instead of `all`, mirroring FT's existing
+`--ft_scope last_n_blocks` machinery.
+
+- [x] `scripts/randopt_shift.py`: added `--perturb_steps` (P, default 1).
+      `run_sampling` draws P-seed chains per candidate (same sigma every
+      step), applies all P steps before scoring once, restores in reverse.
+      `run_ensemble_multi` normalizes each top-K entry via `_as_seed_chain`
+      so it transparently accepts either the original flat `(seed, sigma)`
+      format (still used by `scripts/eval_backbone_on_imagenet.py` and every
+      pre-existing `results.json`) or the new chain format — P=1 draws the
+      exact same seeds/sigmas as the pre-change code (verified: identical
+      rng draws). Committed `85abd56`.
+- [x] **Calibration (N=20, 5 engines, imagenet_c, matched configs) before
+      committing GPU time**: per-batch sampling time barely moves with P —
+      P=1: 165.4s avg, P=2: 166.2s, P=3: 166.6s, P=5: 168.1s. The extra
+      perturb/restore round-trips (Gaussian noise regen over all 6.72B
+      backbone params) cost <1s each — negligible next to the ~165s/batch
+      forward-pass cost. Projected real-run ETA for P=2/3/5 at N=2000/K=50:
+      ~18.5-18.7h sampling + ~1h overhead ≈ same ~19.5-20h as the existing
+      P=1 baseline, not a P× multiple.
+- [ ] **Real sweep launched** 2026-08-09 19:34 UTC on gpu56, 5 engines, all 6
+      datasets (`--dataset all,imagenet,imagenet_c`), N=2000/K=50,
+      train/test_samples=1000, sequential wrapper (`~/run_multistep_sweep.sh`
+      on gpu56) runs P=2 → P=3 → P=5 back-to-back since only one 5-engine
+      DINOv3 job fits in the 251GB host RAM ceiling at a time. Wandb names
+      `dinov3-all6-N2000-K50-P{2,3,5}-tr1k-te1k`; results land in
+      `results/dinov3-all6-N2000-K50-P{2,3,5}-tr1k-te1k/results.json`. ETA
+      ~58-60h total (~2.5 days) from launch.
+- [ ] **Layer-scope sweep, next** (after the multi-step sweep frees gpu56):
+      RandOpt with `--perturb_target last_n_blocks --last_n_blocks N` at
+      N=4/8/12/20 (10/20/30/50% of DINOv3's 40 blocks), same N=2000/K=50, all
+      6 datasets, sequential (~19-20h each, ~80h total). No new code needed
+      — `last_n_blocks` scoping already exists and is exercised by
+      `ft_matched_baseline.py`'s `--ft_scope`.
+- [ ] Item raised alongside these two: a separate concurrent Claude session
+      is running RandOpt-vs-FT on DINOv2 + new datasets (exdark, etc. — see
+      "New same-distribution train/val/test datasets" section above); not
+      this session's scope, flagged here only so it isn't duplicated.
+
 ## Open tasks
 
 - [ ] **FT matched baseline** (scripts/ft_matched_baseline.py): fine-tune the
