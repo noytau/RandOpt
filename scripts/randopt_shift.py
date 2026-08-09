@@ -119,6 +119,10 @@ def parse_args():
     p.add_argument("--perturb_target", default="all",
                     choices=["all", "head", "last_n_blocks"])
     p.add_argument("--last_n_blocks", type=int, default=0)
+    p.add_argument("--perturb_steps", type=int, default=1,
+                    help="chain P perturbations (same sigma each step) before "
+                         "scoring; only the final step of the chain is scored. "
+                         "P=1 (default) is the original single-step behavior.")
     p.add_argument("--train_samples", type=int, default=500,
                     help="scoring-set size sampled (class-balanced) from train; "
                          "0 = full split")
@@ -159,32 +163,54 @@ def load_logit_mask(dataset: str):
     return build_mask(subset_indices)
 
 
+def _as_seed_chain(seed_part):
+    """Normalize a perturbation's seed component to a tuple of P seeds,
+    applied in sequence and scored only at the end of the chain. Accepts
+    either a single int seed (the original single-step format, still used by
+    scripts/eval_backbone_on_imagenet.py and pre-existing results.json files)
+    or an already-chained sequence -- so run_ensemble_multi works unchanged
+    for both single-step and multi-step callers."""
+    if isinstance(seed_part, (list, tuple)):
+        return tuple(int(s) for s in seed_part)
+    return (int(seed_part),)
+
+
 def run_sampling(args, engines, handler, train_items, logit_mask, wandb_run):
     print(f"\n{'='*60}\nPERTURBATION SAMPLING\n{'='*60}")
-    print(f"Budget: {args.population_size} | Sigmas: {args.sigma_list}")
+    steps = getattr(args, "perturb_steps", 1)
+    print(f"Budget: {args.population_size} | Sigmas: {args.sigma_list} | "
+          f"perturb_steps: {steps}")
 
+    # same sigma is applied at every step of a chain; only the chain's final
+    # state is scored. steps=1 draws the exact same seeds (same rng calls, in
+    # the same order) as the original single-step implementation.
     rng = np.random.default_rng(seed=args.global_seed)
-    all_seeds = rng.choice(2**31, size=args.population_size, replace=False).tolist()
+    flat_seeds = rng.choice(2**31, size=args.population_size * steps,
+                            replace=False).tolist()
+    all_seed_chains = [tuple(int(s) for s in flat_seeds[i * steps:(i + 1) * steps])
+                       for i in range(args.population_size)]
     all_sigmas = rng.choice(args.sigma_list, size=args.population_size).tolist()
 
-    perf: Dict[Tuple[int, float], float] = {}
+    perf: Dict[Tuple[Tuple[int, ...], float], float] = {}
     done, batch_idx = 0, 0
     while done < args.population_size:
         n = min(args.num_engines, args.population_size - done)
-        batch = [(int(all_seeds[done + i]), float(all_sigmas[done + i]))
+        batch = [(all_seed_chains[done + i], float(all_sigmas[done + i]))
                  for i in range(n)]
 
-        ray.get([engines[i].perturb_weights.remote(s, sig)
-                 for i, (s, sig) in enumerate(batch)])
+        for step in range(steps):
+            ray.get([engines[i].perturb_weights.remote(chain[step], sig)
+                     for i, (chain, sig) in enumerate(batch)])
         preds = ray.get([engines[i].predict.remote(
                              train_items, args.train_input_mode, logit_mask)
                          for i in range(n)])
-        ray.get([engines[i].restore_weights.remote(s, sig)
-                 for i, (s, sig) in enumerate(batch)])
+        for step in reversed(range(steps)):
+            ray.get([engines[i].restore_weights.remote(chain[step], sig)
+                     for i, (chain, sig) in enumerate(batch)])
 
         rewards = [score(handler, preds[i], train_items) for i in range(n)]
-        for (s, sig), r in zip(batch, rewards):
-            perf[(s, sig)] = r
+        for (chain, sig), r in zip(batch, rewards):
+            perf[(chain, sig)] = r
         done += n
         batch_idx += 1
         print(f"  Batch {batch_idx} | {done}/{args.population_size} | "
@@ -228,19 +254,23 @@ def run_ensemble_multi(args, engines, top_k_perturbs, eval_sets, wandb_run):
     total_batches = (max_k + args.num_engines - 1) // args.num_engines
     for b in range(total_batches):
         start, end = b * args.num_engines, min((b + 1) * args.num_engines, max_k)
-        batch = top_k_perturbs[start:end]
+        batch = [(_as_seed_chain(sp), float(sig))
+                 for sp, sig in top_k_perturbs[start:end]]
         print(f"  Batch {b + 1}/{total_batches} ({len(batch)} models)...",
               flush=True)
-        ray.get([engines[i].perturb_weights.remote(s, sig)
-                 for i, (s, sig) in enumerate(batch)])
+        max_steps = max(len(chain) for chain, _ in batch)
+        for step in range(max_steps):
+            ray.get([engines[i].perturb_weights.remote(chain[step], sig)
+                     for i, (chain, sig) in enumerate(batch) if step < len(chain)])
         for e in eval_sets:
             preds = ray.get([engines[i].predict.remote(
                                  e["items"], e["input_mode"], e["logit_mask"])
                              for i in range(len(batch))])
             for local, global_idx in enumerate(range(start, end)):
                 all_answers[e["name"]][global_idx] = preds[local]
-        ray.get([engines[i].restore_weights.remote(s, sig)
-                 for i, (s, sig) in enumerate(batch)])
+        for step in reversed(range(max_steps)):
+            ray.get([engines[i].restore_weights.remote(chain[step], sig)
+                     for i, (chain, sig) in enumerate(batch) if step < len(chain)])
 
     results = {}
     for e in eval_sets:
