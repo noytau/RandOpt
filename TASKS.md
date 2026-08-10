@@ -376,6 +376,22 @@ to only the top T% of blocks instead of `all`, mirroring FT's existing
       `dinov3-all6-N2000-K50-P{2,3,5}-tr1k-te1k`; results land in
       `results/dinov3-all6-N2000-K50-P{2,3,5}-tr1k-te1k/results.json`. ETA
       ~58-60h total (~2.5 days) from launch.
+      - **Both attempts crashed to real, confirmed kernel OOMs from OTHER lab
+        members' unrelated jobs (2026-08-10)** — `gpu56`/`gpu55` are shared
+        department servers, NOT exclusive to this project as CLAUDE.md's
+        table implies. gpu56's P2 leg died at batch 267/400 (66% through
+        sampling): user `omertaub`'s 8-GPU diffusion job + SynthSeg
+        processes pushed the 251GB host over the edge, `dmesg`-confirmed OOM
+        kill of one `ray::SSLEngineImpl` worker. Retried on gpu55 with a
+        reduced `num_engines=2` (pinned via `CUDA_VISIBLE_DEVICES` to the 2
+        actually-free GPUs, since 6/8 were already held by another user's
+        job) — also `dmesg`-confirmed OOM-killed, this time from user
+        `timorhalabi`'s `cellonseg` job's `/dev/shm` shard cache (fluctuates
+        50-100+GB) eating the remaining ~30GB margin. `RAY_memory_monitor_
+        refresh_ms=0` does not prevent this — the kernel OOM killer fires
+        regardless. See memory `project_gpu56_gpu55_contention.md`. **Paused
+        at user's request (2026-08-10)** — user is checking on server
+        access/capacity before any further relaunch attempt.
 - [ ] **Layer-scope sweep, next** (after the multi-step sweep frees gpu56):
       RandOpt with `--perturb_target last_n_blocks --last_n_blocks N` at
       N=4/8/12/20 (10/20/30/50% of DINOv3's 40 blocks), same N=2000/K=50, all
