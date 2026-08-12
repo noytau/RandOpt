@@ -82,7 +82,7 @@ def dinov2_repo_dir() -> str:  # kept for existing callers
 class SSLEngineImpl:
     """DINOv2 backbone + linear head with RandOpt weight perturbation.
 
-    perturb_target: "all" | "head" | "last_n_blocks"
+    perturb_target: "all" | "head" | "backbone" | "last_n_blocks"
     input_mode:     "presized224" (ImageNet-C protocol: normalize only)
                   | "official_resize" (Resize 256 -> CenterCrop 224, clean val)
     num_classes:    1000 (default) loads Meta's released, pretrained
@@ -119,10 +119,12 @@ class SSLEngineImpl:
 
         if backbone_family == "dinov2":
             self.backbone = torch.hub.load(repo, backbone_name, source="local")
+            self._backbone_weights_path = None
         else:  # gated weights pre-downloaded to disk (pvc_ingest_dinov3.sh)
             wp = weights_path or cfg["weights_path"]
             self.backbone = torch.hub.load(repo, backbone_name, source="local",
                                            weights=wp)
+            self._backbone_weights_path = wp
         self.backbone = self.backbone.to(self.device).eval()
         embed_dim = self.backbone.embed_dim
 
@@ -227,6 +229,16 @@ class SSLEngineImpl:
         if self.perturb_target == "head":
             for name, p in self.head.named_parameters():
                 yield f"head.{name}", p
+        elif self.perturb_target == "backbone":
+            # every backbone param, explicitly EXCLUDING the head -- unlike
+            # "all", which perturbs backbone+head together. Lets a cross-eval
+            # reproduce the exact same backbone-only perturbation on an
+            # engine with a DIFFERENT head attached (e.g. replay an ExDark
+            # run's (seed, sigma) pairs against the original frozen
+            # ImageNet-1k head, for a catastrophic-forgetting check) --
+            # noise is generated per-parameter from (seed, that param's own
+            # shape), so it's identical regardless of what head is present.
+            yield from self.backbone.named_parameters()
         elif self.perturb_target == "last_n_blocks":
             # official dinov2 hub models (block_chunks=0): "blocks.{i}.*"
             n_blocks = len(self.backbone.blocks)
@@ -286,16 +298,46 @@ class SSLEngineImpl:
     # ------------------------------------------------------------------
 
     def store_base_weights(self):
-        # snapshot on CPU: a second fp32 ViT-g on an 11GB GPU would OOM
-        self._base_weights = {n: p.data.detach().cpu().clone()
-                              for n, p in self._all_params()}
+        # snapshot on CPU: a second fp32 ViT-g on an 11GB GPU would OOM.
+        # When the backbone has a resolvable checkpoint on disk (DINOv3),
+        # only the (tiny) head is cloned into RAM -- the backbone is
+        # reloaded from disk in reset_to_base_weights instead, since
+        # keeping a persistent ~27GB CPU clone alive for an engine's whole
+        # lifetime (used only once, at the very end, as a drift-safety
+        # net) was the dominant host-RAM cost per engine: confirmed by
+        # real kernel OOM kills on shared multi-tenant GPU servers where
+        # 5 engines' idle clones alone consumed ~135GB (TASKS.md 2026-08-10).
+        if self._backbone_weights_path:
+            self._base_weights = {n: p.data.detach().cpu().clone()
+                                  for n, p in self.head.named_parameters()}
+        else:
+            self._base_weights = {n: p.data.detach().cpu().clone()
+                                  for n, p in self._all_params()}
         return True
 
     def reset_to_base_weights(self):
-        for n, p in self._all_params():
-            p.data.copy_(self._base_weights[n].to(p.device, non_blocking=True))
+        if self._backbone_weights_path:
+            for n, p in self.head.named_parameters():
+                p.data.copy_(self._base_weights[n].to(p.device, non_blocking=True))
+            sd = torch.load(self._backbone_weights_path, map_location="cpu")
+            self.backbone.load_state_dict(sd)
+            self.backbone = self.backbone.to(self.device).eval()
+            del sd
+        else:
+            for n, p in self._all_params():
+                p.data.copy_(self._base_weights[n].to(p.device, non_blocking=True))
         if torch.cuda.is_available():
             torch.cuda.synchronize()
+        return True
+
+    def load_backbone_state_dict(self, path: str):
+        """Swap in an externally fine-tuned backbone (e.g. from
+        scripts/ft_selfcontained.py), keeping whatever head this engine was
+        constructed with unchanged -- used for cross-eval checks (does a
+        backbone adapted to dataset X still perform on dataset Y's head)."""
+        sd = torch.load(path, map_location="cpu")
+        self.backbone.load_state_dict(sd)
+        self.backbone = self.backbone.to(self.device).eval()
         return True
 
     def cleanup_gpu_memory(self):
@@ -318,12 +360,14 @@ def launch_ssl_engines(num_engines: int, init_batch_size: int = 2, **engine_kwar
     once: each engine's __init__ does a CPU-side torch.load of the backbone
     checkpoint, which transiently holds ~2x the checkpoint size in host RAM
     (the freshly-constructed model's own params + the just-deserialized
-    state_dict, before load_state_dict's copy_ frees the latter) on top of
-    store_base_weights' own full-backbone CPU snapshot. For DINOv2 (~4.4GB/
-    engine) firing all N at once never mattered; for DINOv3's ViT-7B
-    (~27GB/engine, so ~54GB transient) launching 6-8 at once blew a 251GB
-    host past its limit and OOM-killed a worker mid-load. Batching caps the
-    transient peak to init_batch_size regardless of final num_engines.
+    state_dict, before load_state_dict's copy_ frees the latter). For DINOv2
+    (~4.4GB/engine) firing all N at once never mattered; for DINOv3's ViT-7B
+    (~27GB/engine, so ~54GB transient just from the __init__ load) launching
+    6-8 at once blew a 251GB host past its limit and OOM-killed a worker
+    mid-load. Batching caps the transient peak to init_batch_size regardless
+    of final num_engines. (store_base_weights' own steady-state snapshot no
+    longer adds to this for DINOv3 — see its docstring — but the transient
+    __init__ spike this batches around is unrelated to that snapshot.)
     """
     available = int(ray.cluster_resources().get("GPU", 0))
     if available < num_engines:

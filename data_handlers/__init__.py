@@ -1,6 +1,7 @@
 """Dataset handlers registry."""
 from .base import DatasetHandler
 from .countdown import CountdownHandler
+from .exdark import ExDarkHandler
 from .gqa import GQAHandler
 from .gsm8k import GSM8KHandler
 from .imagenet import ImageNetHandler
@@ -34,6 +35,7 @@ DATASET_HANDLERS = {
     "imagenet_r": ImageNetRHandler,
     "imagenet_sketch": ImageNetSketchHandler,
     "imagenet_es": ImageNetESHandler,
+    "exdark": ExDarkHandler,
 }
 
 # -----------------------------------------------------------------------------

@@ -334,10 +334,31 @@ dataset, separately from the imagenet_c/a/r/sketch/es shift battery above.
       independently on all 3 (paths are absolute + host-specific, same
       convention as the shift suite: Geoffry uses `/mnt5/noy/datasets`,
       gpu55/gpu56 use `~/datasets`).
-- [ ] Not yet done: no `data_handlers` subclasses wired up for these 5 yet
-      (data-prep only, mirroring how the shift suite was staged first) —
-      needed before `randopt_shift.py`/FT/probe can actually run
-      train-on-X/test-on-X for any of them.
+- [x] **exdark self-contained pipeline coded** (2026-08-03/04, by the
+      concurrent session flagged below — was left uncommitted when that
+      session's terminal closed; recovered + verified 2026-08-12, no bugs
+      found on read-through, not yet run). `data_handlers/exdark.py`
+      (`ExDarkHandler`, registered in `data_handlers/__init__.py`) + new
+      `perturb_target="backbone"` scope in `vision/ssl_engine.py` (perturbs
+      backbone only, excluding head — lets a (seed, sigma) pair be replayed
+      against a *different* head) + `load_backbone_state_dict()`. New
+      scripts: `vision/head_probe.py` (`fit_linear_head` — generic trainer,
+      reused by both fit and FT below), `scripts/fit_head.py` (one-time
+      fresh 12-way head fit, since exdark has no pretrained head the way
+      ImageNet-1k does), `scripts/randopt_selfcontained.py` (RandOpt scored
+      + evaluated entirely on exdark's own train/test, not clean ImageNet —
+      `_SELFCONTAINED_REGISTRY`, exdark only so far; fgvc_aircraft/
+      stanford_dogs/domainnet_{clipart,sketch} are one registry line +
+      handler each, later), `scripts/ft_selfcontained.py` (matched FT
+      baseline, same head/data/eval as RandOpt for a fair comparison),
+      `scripts/eval_backbone_on_imagenet.py` (catastrophic-forgetting check:
+      replay an exdark-adapted backbone against the ORIGINAL frozen
+      ImageNet-1k head on imagenet/imagenet_c/a/r/sketch/es).
+      `scripts/data_prep/make_new_dataset_manifests.py` also grew a
+      `train_holdout` split (disjoint from what `fit_head.py` trains on) so
+      RandOpt scoring never re-measures images the head already memorized.
+      **Next**: run on gpu56/55 — `fit_head.py --dataset exdark` first, then
+      `randopt_selfcontained.py`/`ft_selfcontained.py --dataset exdark`.
 - [ ] License note: ExDark is non-commercial-research-use only per its own
       README — fine for this project's use, flag if that ever changes.
 
@@ -392,16 +413,33 @@ to only the top T% of blocks instead of `all`, mirroring FT's existing
         regardless. See memory `project_gpu56_gpu55_contention.md`. **Paused
         at user's request (2026-08-10)** — user is checking on server
         access/capacity before any further relaunch attempt.
+      - **Candidate RAM fix coded 2026-08-12** (uncommitted, NOT yet tested
+        against a real relaunch — session that wrote it was closed before
+        verifying): `store_base_weights`/`reset_to_base_weights`
+        (`vision/ssl_engine.py`) no longer keep a persistent full-backbone
+        CPU clone alive per engine for DINOv3 — only the (tiny) head is
+        cloned into RAM; the backbone is instead reloaded from its on-disk
+        checkpoint the one time `reset_to_base_weights` actually runs (once
+        per engine, right before ensemble eval). Old behavior: every engine
+        held a ~27GB CPU snapshot for its whole lifetime just as a
+        drift-safety net used once at the very end — 5 engines' idle clones
+        ≈135GB, plausibly the dominant host-RAM cost that made the two OOMs
+        above easier to trigger (contention from other users' jobs was the
+        proximate cause either way, so this reduces exposure, not a
+        guaranteed fix). Doesn't touch the DINOv2 path (no on-disk
+        checkpoint to reload from, so unaffected). Needs: commit, then a
+        real relaunch to confirm before trusting the RAM math.
 - [ ] **Layer-scope sweep, next** (after the multi-step sweep frees gpu56):
       RandOpt with `--perturb_target last_n_blocks --last_n_blocks N` at
       N=4/8/12/20 (10/20/30/50% of DINOv3's 40 blocks), same N=2000/K=50, all
       6 datasets, sequential (~19-20h each, ~80h total). No new code needed
       — `last_n_blocks` scoping already exists and is exercised by
       `ft_matched_baseline.py`'s `--ft_scope`.
-- [ ] Item raised alongside these two: a separate concurrent Claude session
-      is running RandOpt-vs-FT on DINOv2 + new datasets (exdark, etc. — see
-      "New same-distribution train/val/test datasets" section above); not
-      this session's scope, flagged here only so it isn't duplicated.
+- [x] Item raised alongside these two: a separate concurrent Claude session
+      was running RandOpt-vs-FT on DINOv2 + new datasets (exdark, etc.) — its
+      terminal got closed 2026-08-12 before it committed; work recovered +
+      verified, see "New same-distribution train/val/test datasets" section
+      above for what it left coded and what's still needed to run it.
 
 ## Open tasks
 
