@@ -1,9 +1,18 @@
 # RandOpt
+
+<p align="center">
+  <img src="assets/neural_thickets.gif" alt="Neural Thickets" width="100%">
+</p>
+
 **Neural Thickets: Diverse Task Experts Are Dense Around Pretrained Weights**
 
 [Yulu Gan](https://yulugan.com), [Phillip Isola](https://web.mit.edu/phillipi/)
 
-[Paper](https://arxiv.org/pdf/2603.12228)          |         [Project Page](https://thickets.mit.edu)    |        Starting with a 1D Experiment: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1SsBrfQ-iFKuGElWjTNiFoX4dtMaCzCGy?usp=sharing)
+[Paper](https://arxiv.org/pdf/2603.12228)          |         [Project Page](https://thickets.mit.edu)    |   [Openreview](https://openreview.net/forum?id=92oF5bU4cU) |    Starting with a 1D Experiment: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1SsBrfQ-iFKuGElWjTNiFoX4dtMaCzCGy?usp=sharing)
+
+
+## News
+- **[2026-07]** **Iterative RandOpt** is now on the [**`iterative-randopt`**](https://github.com/sunrainyg/RandOpt/tree/iterative-randopt) branch! Also support the `pip install`-able implementation that drops into existing **verl** or **huggingface/trl** setups.
 
 
 ## Requirements
@@ -46,6 +55,9 @@ Please follow the instructions in [distillation/README.md](distillation/README.m
 
 ## Run Baselines
 Please follow the instructions in [baselines/README.md](baselines/README.md)
+
+## Having questions?
+Open an issue @ [github.com/sunrainyg/RandOpt/issues](https://github.com/sunrainyg/RandOpt/issues/new).
 
 
 ## Citation
