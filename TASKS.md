@@ -485,6 +485,62 @@ to only the top T% of blocks instead of `all`, mirroring FT's existing
       verified, see "New same-distribution train/val/test datasets" section
       above for what it left coded and what's still needed to run it.
 
+## ExDark on DINOv3 (added 2026-08-16)
+
+ExDark so far only ran on DINOv2 (see above) — user asked for the same
+FT-vs-RandOpt comparison on DINOv3, as two experiments: (1) adapt on clean
+ImageNet, check transfer/damage on ExDark; (2) adapt on ExDark itself, check
+transfer/damage on the 6 ImageNet-family datasets (mirrors the DINOv2
+ExDark series' own forgetting check). Both: FT lr=1e-5/all-layers, RandOpt
+N=2000/K=50. **Prep done, nothing launched yet.**
+
+- [x] Tested the DINOv3+ExDark combination for the first time (toy scale,
+      2 engines, 24 samples): `fit_head.py`, `randopt_selfcontained.py`
+      (full loop incl. the reset-from-disk RAM-fix path), and
+      `ft_selfcontained.py` all confirmed working.
+- [x] Found + fixed a real bug during that test: DINOv3's default
+      `weights_path`/`head_path` (`vision/ssl_engine.py`'s `_FAMILIES`)
+      pointed at the RunAI cluster location only, no valid fallback on
+      gpu55/gpu56. Never bit a real run before (every launch script passes
+      the flag explicitly) but broke ad-hoc testing. Fixed the default.
+- [x] Found + fixed a second gap while preparing experiment (2)'s FT half:
+      `ft_selfcontained.py`/`vision/head_probe.py`'s `fit_linear_head` had
+      never been exercised at `ft_scope="all"` on a DINOv3-scale backbone —
+      would OOM (same wall `ft_matched_baseline.py` already solved: fp32
+      AdamW needs ~107.5GB for 6.72B params). Ported that script's bf16 +
+      gradient-checkpointing + 8-bit-AdamW approach into `fit_linear_head`
+      rather than duplicating it. Also fixed `ft_selfcontained.py`'s
+      `delta_w` snapshot (`w0`) to be CPU-resident, matching a fix
+      `ft_matched_baseline.py` already had — was silently GPU-resident
+      (~27GB extra) on top of the now-tight all-scope footprint.
+- [x] `scripts/ft_matched_baseline.py`: added `--backbone_out` — it never
+      saved the fine-tuned backbone before (measured accuracy, discarded
+      the weights), so the earlier "DINOv3 FT lr=1e-5/all-layers on
+      ImageNet" run's numbers exist but the adapted weights don't. Needs a
+      rerun to get a reusable checkpoint for experiment (1)'s FT half.
+- [x] `scripts/eval_backbone_on_exdark.py`: new script, mirrors
+      `eval_backbone_on_imagenet.py` in the opposite direction — takes an
+      ImageNet-adapted backbone (FT or RandOpt) and evaluates it against a
+      freshly-fit ExDark head instead of the reverse. `--mode base/randopt/
+      ft`, reuses `run_ensemble_multi` and the `perturb_target="backbone"`
+      replay mechanism already proven for the ExDark→ImageNet direction.
+- [ ] **Not yet run, needs go-ahead**:
+      - Fit a real (non-toy) ExDark head on the base DINOv3 backbone
+        (`fit_head.py --dataset exdark --backbone_family dinov3`) — shared
+        prerequisite for both experiments below.
+      - Experiment (1) RandOpt half is free — the ImageNet-trained
+        N=2000/K=50 run already exists (`dinov3-all6-N2000-K50-tr1k-te1k`
+        on gpu56, real `top_k_perturbs` saved) — just needs
+        `eval_backbone_on_exdark.py --mode randopt` pointed at it.
+      - Experiment (1) FT half needs a rerun (`ft_matched_baseline.py
+        --ft_scope all --lr 1e-5 --backbone_out ...` on ImageNet, DINOv3 —
+        proven feasible before, genuinely multi-hour), then
+        `eval_backbone_on_exdark.py --mode ft`.
+      - Experiment (2): `randopt_selfcontained.py` /
+        `ft_selfcontained.py --ft_scope all --lr 1e-5 --dataset exdark`
+        (DINOv3, N=2000/K=50), then `eval_backbone_on_imagenet.py`
+        (already built) for the 6-dataset forgetting check.
+
 ## Open tasks
 
 - [x] **FT matched baseline** (scripts/ft_matched_baseline.py): done and
