@@ -334,10 +334,25 @@ dataset, separately from the imagenet_c/a/r/sketch/es shift battery above.
       independently on all 3 (paths are absolute + host-specific, same
       convention as the shift suite: Geoffry uses `/mnt5/noy/datasets`,
       gpu55/gpu56 use `~/datasets`).
-- [x] **exdark self-contained pipeline coded** (2026-08-03/04, by the
-      concurrent session flagged below — was left uncommitted when that
-      session's terminal closed; recovered + verified 2026-08-12, no bugs
-      found on read-through, not yet run). `data_handlers/exdark.py`
+- [x] **exdark self-contained pipeline: coded AND run** (2026-08-03/04, by
+      the concurrent session flagged below — code was left uncommitted when
+      that session's terminal closed; recovered + verified 2026-08-12).
+      **Correction (2026-08-16): the "not yet run" note below was wrong** —
+      checked gpu55 directly and the full series already completed
+      2026-08-02 to 08-04, before the session closed: `checkpoints/
+      exdark_head.pth` (fitted head) and `exdark_ft_all_backbone.pth`
+      (4.5GB FT'd backbone) exist on disk; `results/randopt-ssl-self-
+      exdark-{N2000,N2000-holdout,N3000-holdout}/results.json` are real,
+      finished results (verified `randopt-ssl-self-exdark-N3000-holdout`:
+      base_test_accuracy=0.8471, ensemble K=50=84.74%, matching
+      `results/report.html` exactly). Full results (RandOpt N=2000/3000,
+      FT at 3 learning rates, 6-dataset forgetting cross-eval) are already
+      written up in `results/report.html` sections 1-7 and the published
+      artifact, generated 2026-08-05. Nothing left to run for exdark itself
+      — see "New same-distribution train/val/test datasets" section's
+      remaining open item (fgvc_aircraft/stanford_dogs/domainnet_*, not
+      started) for what's actually still open in this series.
+      `data_handlers/exdark.py`
       (`ExDarkHandler`, registered in `data_handlers/__init__.py`) + new
       `perturb_target="backbone"` scope in `vision/ssl_engine.py` (perturbs
       backbone only, excluding head — lets a (seed, sigma) pair be replayed
@@ -357,8 +372,6 @@ dataset, separately from the imagenet_c/a/r/sketch/es shift battery above.
       `scripts/data_prep/make_new_dataset_manifests.py` also grew a
       `train_holdout` split (disjoint from what `fit_head.py` trains on) so
       RandOpt scoring never re-measures images the head already memorized.
-      **Next**: run on gpu56/55 — `fit_head.py --dataset exdark` first, then
-      `randopt_selfcontained.py`/`ft_selfcontained.py --dataset exdark`.
 - [ ] License note: ExDark is non-commercial-research-use only per its own
       README — fine for this project's use, flag if that ever changes.
 
@@ -474,32 +487,37 @@ to only the top T% of blocks instead of `all`, mirroring FT's existing
 
 ## Open tasks
 
-- [ ] **FT matched baseline** (scripts/ft_matched_baseline.py): fine-tune the
-      released DINOv2 backbone+head on the SAME class-balanced clean draws as
-      RandOpt scoring, eval on clean holdout + IC draws. Two configs:
-      tr1k/eval5k and tr5k/eval1k. Run on the new GPU servers once connected
-      (else cluster A6000). ~1–2 h each.
-- [ ] **New GPU servers bring-up** (132.66.150.56 = `gpu56`,
-      132.66.150.55 = `gpu55`; user noy, Geoffry password):
-      - [ ] key auth: USER runs `ssh-copy-id noy@132.66.150.56` (+ .55)
-      - [ ] inspect: GPUs, CUDA driver, disk, home layout
-      - [ ] code: clone noytau/RandOpt; python env (venv like Geoffry)
-      - [ ] data: pull imagenet train-subset + val + IC gaussian_noise/3 from
-            Geoffry (server→server scp after keying), regen manifests locally
-      - [ ] smoke: engine load + 1-perturbation round trip
+- [x] **FT matched baseline** (scripts/ft_matched_baseline.py): done and
+      superseded — DINOv2 tr1k/tr5k results landed 2026-08-02 (see top of
+      this file), and the fuller DINOv3 FT comparison (last_n_blocks=5 +
+      full model, 3 lr's, all 6 datasets) landed 2026-08-03/04 (see "DINOv3
+      Experiments" work below and the published reports).
+- [x] **New GPU servers bring-up** (gpu56/gpu55) — done. Both have been in
+      active use for weeks: key auth working, code synced (`myfork` =
+      noytau/RandOpt.git on both), data present, dozens of real runs
+      completed (N=2000/3000 DINOv3 sweeps, ExDark series, multi-step
+      verification run 2026-08-14). gpu56 hit an unrelated driver outage
+      2026-08-11 to ~08-15 (another lab member purged NVIDIA drivers,
+      confirmed fixed 2026-08-16) — not a bring-up gap, a later incident.
 - [ ] Design tier (brainstorm with Nimrod, never auto-implement): kNN-centered
       scoring arm; unadapted-center setup; two-stage scoring
-- [ ] Docker image rebuild (only if cluster still used): bake in `wandb
+- [ ] Docker image rebuild (only relevant if RunAI is used again — fallback
+      only per policy below, not touched in weeks): bake in `wandb
       torchmetrics termcolor omegaconf ftfy submitit scikit-learn regex`
 - [ ] Report expired cluster-api TLS cert (`hpc-vm-runai.eng.tau.ac.il`) to
       admins — blocks `runai logs`/`exec`; workaround: W&B run `output.log`
-- [ ] Adapt or delete stale `scripts/dinov2_hub_inference.py` (uncommitted)
+      (low priority while RunAI is unused)
+- [ ] Adapt or delete stale `scripts/dinov2_hub_inference.py` — still sitting
+      uncommitted and untouched, unrelated to any current work thread
 
-## Job venue policy (updated 2026-08-01)
+## Job venue policy (updated 2026-08-16)
 
-**Prefer the standalone GPU servers `gpu56`/`gpu55` over RunAI** for new
-jobs once they're set up (large GPUs, no scheduler roulette, no daily token,
-no noisy-neighbor OOM kills). Fall back to RunAI for multi-node scale only.
+**Standalone GPU servers `gpu56`/`gpu55` are the default now** (bring-up is
+done, both actively used) — large GPUs, no scheduler roulette, no daily
+token, no noisy-neighbor OOM kills (though real contention from other lab
+members' jobs on these SHARED servers is still possible — check
+`nvidia-smi` before every submission). Fall back to RunAI for multi-node
+scale only.
 
 ## Cluster (RunAI) operating rules — for fallback use
 
