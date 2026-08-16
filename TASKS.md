@@ -413,22 +413,53 @@ to only the top T% of blocks instead of `all`, mirroring FT's existing
         regardless. See memory `project_gpu56_gpu55_contention.md`. **Paused
         at user's request (2026-08-10)** — user is checking on server
         access/capacity before any further relaunch attempt.
-      - **Candidate RAM fix coded 2026-08-12** (uncommitted, NOT yet tested
-        against a real relaunch — session that wrote it was closed before
-        verifying): `store_base_weights`/`reset_to_base_weights`
-        (`vision/ssl_engine.py`) no longer keep a persistent full-backbone
-        CPU clone alive per engine for DINOv3 — only the (tiny) head is
-        cloned into RAM; the backbone is instead reloaded from its on-disk
-        checkpoint the one time `reset_to_base_weights` actually runs (once
-        per engine, right before ensemble eval). Old behavior: every engine
-        held a ~27GB CPU snapshot for its whole lifetime just as a
-        drift-safety net used once at the very end — 5 engines' idle clones
-        ≈135GB, plausibly the dominant host-RAM cost that made the two OOMs
-        above easier to trigger (contention from other users' jobs was the
-        proximate cause either way, so this reduces exposure, not a
-        guaranteed fix). Doesn't touch the DINOv2 path (no on-disk
-        checkpoint to reload from, so unaffected). Needs: commit, then a
-        real relaunch to confirm before trusting the RAM math.
+      - **RAM fix coded 2026-08-12, verified 2026-08-14** (commit `8965fa5`,
+        recovered + reviewed after the session that wrote it was closed
+        mid-work — see "New same-distribution train/val/test datasets"
+        section for that recovery): `store_base_weights`/
+        `reset_to_base_weights` (`vision/ssl_engine.py`) no longer keep a
+        persistent full-backbone CPU clone alive per engine for DINOv3 —
+        only the (tiny) head is cloned into RAM; the backbone is instead
+        reloaded from its on-disk checkpoint the one time
+        `reset_to_base_weights` actually runs (once per engine, right
+        before ensemble eval). Old behavior: every engine held a ~27GB CPU
+        snapshot for its whole lifetime just as a drift-safety net used
+        once at the very end — 5 engines' idle clones ≈135GB, plausibly the
+        dominant host-RAM cost that made the two OOMs above easier to
+        trigger (contention from other users' jobs was the proximate cause
+        either way, so this reduces exposure, not a guaranteed fix).
+        Doesn't touch the DINOv2 path (no on-disk checkpoint to reload
+        from, so unaffected).
+        **Verification run** (gpu55, `imagenet_c`, N=2000/K=50, P=3,
+        `num_engines=2` pinned to the only 2 GPUs free at the time — gpu56
+        was down the whole window with its driver purged by another lab
+        member, unrelated, see below): launched 2026-08-12 13:59, finished
+        cleanly 2026-08-14 14:50 (~49h, in line with the ~46-47h estimate
+        for this reduced scale), zero errors/OOM/kills in the log, host RAM
+        back to 162/220GB available after exit. `base_test_accuracy=0.853`,
+        `best_sigma=0.001`, `ensemble K=50 accuracy=85.3%` (+0.0pp vs base —
+        flat, consistent with the existing DINOv3-RandOpt-is-flat finding
+        above; this run's purpose was the RAM fix, not a new result).
+        wandb: `dinov3-imagenet_c-N2000-K50-P3-2eng-tr1k-te1k`. **RAM fix
+        confirmed working** — full 5-engine relaunch of the original
+        P=2→3→5/N=2000/all6 sweep is unblocked whenever gpu56 (or more free
+        GPUs on gpu55) are available.
+      - **gpu56 driver outage, 2026-08-11 to ~2026-08-15/16** (separate,
+        unrelated incident, discovered mid-verification-run when SSH to
+        both gpu56 AND gpu55 started timing out and had to be diagnosed):
+        another lab member, `erez`, ran `apt-get purge` on the entire
+        NVIDIA driver stack on gpu56 (2026-08-11 09:59, per
+        `/var/log/apt/history.log`), followed by 3 reboots landing on a new
+        kernel (`6.8.0-137-generic`); no driver was reinstalled for days,
+        leaving gpu56 with 0 usable GPUs (`nvidia-smi` gone,
+        `torch.cuda.is_available()` → False). Confirmed reinstalled and
+        healthy again as of 2026-08-16 (`torch.cuda.device_count()` → 8).
+        The multi-day SSH-unreachable window for gpu55 in between was
+        separate and never root-caused (both hosts timed out identically,
+        consistent with a network/VPN-side issue rather than a second host
+        failure — gpu55's uptime showed no reboot across that window, and
+        the verification run above completed successfully in the middle of
+        it, confirming gpu55 itself was fine throughout).
 - [ ] **Layer-scope sweep, next** (after the multi-step sweep frees gpu56):
       RandOpt with `--perturb_target last_n_blocks --last_n_blocks N` at
       N=4/8/12/20 (10/20/30/50% of DINOv3's 40 blocks), same N=2000/K=50, all
