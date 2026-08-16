@@ -71,6 +71,13 @@ def parse_args():
     p.add_argument("--global_seed", type=int, default=42)
     p.add_argument("--wandb_project", default="randopt")
     p.add_argument("--wandb_name", default=None)
+    p.add_argument("--backbone_out", default=None,
+                    help="save the fine-tuned backbone's state_dict here -- "
+                         "without this, the adapted weights only ever exist "
+                         "in GPU memory and are gone once the process exits. "
+                         "Needed to later cross-eval this exact backbone "
+                         "against a different dataset's head (e.g. "
+                         "scripts/eval_backbone_on_exdark.py).")
     args = p.parse_args()
     args.dataset_targets = _parse_dataset_list(args.dataset)
     return args
@@ -252,6 +259,10 @@ def main(args):
     print("FINAL:", {k: round(v, 4) for k, v in final.items()})
     run.log(final)
     run.finish()
+
+    if args.backbone_out:
+        torch.save(engine.backbone.state_dict(), args.backbone_out)
+        print(f"saved fine-tuned backbone: {args.backbone_out}")
 
 
 if __name__ == "__main__":

@@ -117,13 +117,18 @@ def main(args):
 
     # snapshot the trainable subset BEFORE fitting, to measure weight
     # displacement (delta_w / sigma_equiv) comparable to RandOpt's sigma --
-    # same scope-selection logic fit_linear_head uses internally.
+    # same scope-selection logic fit_linear_head uses internally. CPU, not
+    # GPU (matches ft_matched_baseline.py's already-fixed pattern) -- a
+    # GPU-resident clone of all-scope's 6.72B params (~27GB) sitting
+    # alongside fit_linear_head's own bf16+8bit-optimizer+checkpointing
+    # footprint is exactly the kind of avoidable OOM that pattern was
+    # fixed for elsewhere.
     if args.ft_scope == "all":
         trainable = dict(engine._all_params())
     else:
         engine.set_perturb_scope(args.ft_scope, args.ft_last_n_blocks)
         trainable = dict(engine._perturb_params())
-    w0 = {n: p.detach().clone() for n, p in trainable.items()}
+    w0 = {n: p.detach().cpu().clone() for n, p in trainable.items()}
 
     fit_linear_head(engine, train_items, handler, reg["input_mode"],
                     lr=args.lr, epochs=args.epochs, batch_size=args.batch_size,
@@ -133,7 +138,7 @@ def main(args):
     with torch.no_grad():
         sq, n_par = 0.0, 0
         for n, p in trainable.items():
-            sq += (p.detach() - w0[n]).float().pow(2).sum().item()
+            sq += (p.detach().cpu().float() - w0[n].float()).pow(2).sum().item()
             n_par += p.numel()
     delta_w = sq ** 0.5
     sigma_equiv = delta_w / (n_par ** 0.5)

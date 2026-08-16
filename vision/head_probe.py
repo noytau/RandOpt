@@ -37,7 +37,35 @@ def fit_linear_head(engine, train_items, handler, input_mode, lr=1e-3,
     print(f"  probe scope '{scope}': {len(trainable)} trainable tensors "
           f"({sum(p.numel() for p in trainable.values()) / 1e6:.1f}M params)")
 
-    opt = torch.optim.AdamW(list(trainable.values()), lr=lr, weight_decay=0.0)
+    # scope="all" on a DINOv3-scale backbone (6.72B params) does not fit a
+    # single 46GB GPU under plain fp32 AdamW (~107.5GB for weights+grad+
+    # optimizer moments alone) -- ft_matched_baseline.py hit and solved this
+    # exact wall (see its comments for the full OOM investigation): bf16
+    # weight storage, an 8-bit optimizer (halves/1-bytes the four per-param
+    # tensors), AND gradient checkpointing (every one of the 40 blocks is
+    # trainable here, so autograd would otherwise retain all their
+    # activations for backward). Ported verbatim rather than duplicated
+    # logic drifting apart. Smaller scopes (head/last_n_blocks) never
+    # needed this and keep the original plain fp32 path.
+    model_dtype = torch.bfloat16 if scope == "all" else torch.float32
+    if model_dtype is torch.bfloat16:
+        engine.backbone.to(model_dtype)
+        engine.head.to(model_dtype)
+        import torch.utils.checkpoint as ckpt
+
+        def _checkpointed(fwd):
+            def wrapped(*a, **kw):
+                return ckpt.checkpoint(fwd, *a, use_reentrant=False, **kw)
+            return wrapped
+
+        for block in engine.backbone.blocks:
+            block.forward = _checkpointed(block.forward)
+
+    if scope == "all":
+        import bitsandbytes as bnb
+        opt = bnb.optim.AdamW8bit(list(trainable.values()), lr=lr, weight_decay=0.0)
+    else:
+        opt = torch.optim.AdamW(list(trainable.values()), lr=lr, weight_decay=0.0)
     steps_per_epoch = (len(train_items) + batch_size - 1) // batch_size
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(
         opt, T_max=max(1, epochs * steps_per_epoch))
@@ -54,13 +82,13 @@ def fit_linear_head(engine, train_items, handler, input_mode, lr=1e-3,
         for i in range(0, len(order), batch_size):
             idx = order[i:i + batch_size]
             batch = load_image_batch([train_items[j] for j in idx],
-                                      transform).to(device)
+                                      transform).to(device, dtype=model_dtype)
             labels = torch.tensor([labels_all[j] for j in idx], device=device)
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 f_out = engine.backbone.forward_features(batch)
                 feat = torch.cat([f_out["x_norm_clstoken"],
                                    f_out["x_norm_patchtokens"].mean(dim=1)], dim=1)
-                logits = engine.head(feat.float())
+                logits = engine.head(feat.to(engine.head.weight.dtype))
                 loss = F.cross_entropy(logits, labels)
             opt.zero_grad(set_to_none=True)
             loss.backward()
