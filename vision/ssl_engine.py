@@ -56,9 +56,14 @@ _FAMILIES = {
         "repo_candidates": ["/mnt5/noy/dinov3", "/storage/noy/dinov3",
                            "/home/noy/repos/dinov3"],
         "default_backbone": "dinov3_vit7b16",
-        "weights_path": ("/storage/noy/models/dinov3/"
+        # standalone-server path (gpu55/gpu56, the default venue as of
+        # 2026-08-16) -- RunAI cluster jobs live at /storage/noy/models/...
+        # instead and always pass --weights_path/--head_path explicitly
+        # (see scripts/submit_runai.sh), so this default is never relied on
+        # there.
+        "weights_path": ("/home/noy/models/dinov3/"
                          "dinov3_vit7b16_pretrain_lvd1689m-a955f4ea.pth"),
-        "head_path": ("/storage/noy/models/dinov3/"
+        "head_path": ("/home/noy/models/dinov3/"
                       "dinov3_vit7b16_imagenet1k_linear_head-90d8ed92.pth"),
     },
 }
