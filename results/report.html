@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RandOpt / Neural Thickets — Experiment Report</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --border: #2d3044;
+    --accent: #7c6fff;
+    --accent2: #4ecdc4;
+    --accent3: #ff6b6b;
+    --accent4: #ffd93d;
+    --text: #e2e8f0;
+    --muted: #8892a4;
+    --green: #51cf66;
+    --orange: #ff9f43;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; line-height: 1.6; }
+  a { color: var(--accent); }
+
+  .hero { background: linear-gradient(135deg, #1a1d27 0%, #13142b 100%); border-bottom: 1px solid var(--border); padding: 3rem 2rem 2rem; text-align: center; }
+  .hero h1 { font-size: 2.4rem; font-weight: 700; background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .hero .subtitle { color: var(--muted); margin-top: .5rem; font-size: 1.05rem; }
+  .hero .date { color: var(--muted); font-size: .85rem; margin-top: .3rem; }
+
+  .container { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+  section { margin-bottom: 3rem; }
+  h2 { font-size: 1.5rem; font-weight: 700; color: var(--accent); border-left: 4px solid var(--accent); padding-left: .75rem; margin-bottom: 1.25rem; }
+  h3 { font-size: 1.1rem; font-weight: 600; color: var(--accent2); margin: 1.25rem 0 .6rem; }
+  p { color: var(--text); margin-bottom: .75rem; }
+  .muted { color: var(--muted); font-size: .9rem; }
+
+  /* Cards */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1rem; }
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+  .metric-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.1rem 1.3rem; }
+  .metric-card .label { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .metric-card .value { font-size: 1.9rem; font-weight: 700; margin: .1rem 0; }
+  .metric-card .sub { font-size: .82rem; color: var(--muted); }
+  .green { color: var(--green); }
+  .orange { color: var(--orange); }
+  .purple { color: var(--accent); }
+  .teal { color: var(--accent2); }
+  .red { color: var(--accent3); }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th { background: #252838; color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: .75rem; letter-spacing: .05em; padding: .65rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+  td { padding: .6rem 1rem; border-bottom: 1px solid #1e2134; color: var(--text); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #20233a; }
+  .best { color: var(--green); font-weight: 700; }
+  .bad { color: var(--accent3); }
+  .neutral { color: var(--muted); }
+  .tag { display: inline-block; padding: .15rem .5rem; border-radius: 4px; font-size: .75rem; font-weight: 600; }
+  .tag-llm { background: #2d2060; color: var(--accent); }
+  .tag-vision { background: #0d3040; color: var(--accent2); }
+
+  /* Charts */
+  .chart-container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1rem; }
+  .chart-title { font-size: .9rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 1rem; }
+  .bar-chart { display: flex; flex-direction: column; gap: .55rem; }
+  .bar-row { display: flex; align-items: center; gap: .75rem; }
+  .bar-label { width: 220px; font-size: .82rem; color: var(--text); flex-shrink: 0; text-align: right; }
+  .bar-track { flex: 1; background: #252838; border-radius: 4px; height: 24px; overflow: hidden; position: relative; }
+  .bar-fill { height: 100%; border-radius: 4px; display: flex; align-items: center; padding-left: .4rem; font-size: .78rem; font-weight: 700; transition: width .3s; min-width: 2px; }
+  .bar-val { margin-left: .4rem; font-size: .82rem; color: var(--muted); flex-shrink: 0; width: 60px; }
+
+  .sigma-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+  /* Code */
+  code { background: #252838; border: 1px solid var(--border); border-radius: 4px; padding: .1rem .35rem; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: .85rem; color: var(--accent2); }
+  pre code { display: block; padding: .75rem 1rem; line-height: 1.55; overflow-x: auto; }
+
+  /* Callouts */
+  .callout { border-radius: 8px; padding: .9rem 1.1rem; margin: 1rem 0; border-left: 4px solid; }
+  .callout-info { background: #1a2040; border-color: var(--accent); }
+  .callout-success { background: #0d2d1a; border-color: var(--green); }
+  .callout-warning { background: #2d1f00; border-color: var(--orange); }
+  .callout-danger { background: #2d0d0d; border-color: var(--accent3); }
+  .callout strong { display: block; margin-bottom: .2rem; font-size: .9rem; }
+
+  /* Key finding */
+  .finding { background: linear-gradient(135deg, #1a1d27, #13142b); border: 1px solid var(--accent); border-radius: 10px; padding: 1.25rem 1.5rem; margin: 1.25rem 0; }
+  .finding .num { font-size: 2rem; font-weight: 800; color: var(--accent); float: right; }
+  .finding h4 { color: var(--accent2); font-size: 1rem; margin-bottom: .3rem; }
+  .finding p { color: var(--text); font-size: .9rem; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: .5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .tab { padding: .4rem .9rem; border-radius: 6px; border: 1px solid var(--border); cursor: default; font-size: .85rem; }
+  .tab-active { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
+  .tab-inactive { background: var(--card); color: var(--muted); }
+
+  /* Progress dots */
+  .phase-row { display: flex; align-items: center; gap: .5rem; margin: .4rem 0; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot-done { background: var(--green); }
+  .dot-run { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .phase-text { font-size: .88rem; }
+
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+
+  @media (max-width: 700px) {
+    .card-grid { grid-template-columns: 1fr 1fr; }
+    .sigma-grid { grid-template-columns: 1fr; }
+    .bar-label { width: 130px; font-size: .75rem; }
+    h2 { font-size: 1.25rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <h1>RandOpt / Neural Thickets</h1>
+  <div class="subtitle">ExDark — Honest Train/Test Protocol: RandOpt vs Full Fine-Tuning</div>
+  <div class="date">Generated August 5, 2026 &nbsp;|&nbsp; W&amp;B project: noyhassid-tau/randopt</div>
+</div>
+
+<div class="container">
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>1. What Was Tested</h2>
+  <div class="card">
+    <p><strong>ExDark</strong> (Exclusively Dark Image Dataset) is a 12-class low-light/dark image classification benchmark — the first of several new datasets chosen specifically because each ships its own official train/val/test split. That matters: the project's earlier ImageNet-C distribution-shift suite scored RandOpt's perturbations on clean ImageNet-train and evaluated on a <em>different</em> dataset/corruption, conflating domain shift with train/test methodology. This series fixes that — scoring and evaluation both happen inside one dataset's own splits.</p>
+    <div class="card-grid" style="margin-top:1rem">
+      <div class="card" style="border-color:#0d3040">
+        <h3 style="margin-top:0">🌙 Dataset</h3>
+        <p class="muted">ExDark, 12 classes (Bicycle, Boat, Bottle, Bus, Car, Cat, Chair, Cup, Dog, Motorbike, People, Table)<br>Official split: train 3000 / val 1800 / test 2563 (imageclasslist.txt col 5)</p>
+      </div>
+      <div class="card" style="border-color:#2d2060">
+        <h3 style="margin-top:0">🧠 Model</h3>
+        <p class="muted">DINOv2 ViT-g/14 backbone (1.1B params) + a freshly-fit 12-way linear head (no pretrained ExDark head exists to download, unlike ImageNet-1k)</p>
+      </div>
+    </div>
+    <div class="callout callout-warning">
+      <strong>Data-leak caught and fixed mid-series</strong> The first RandOpt/FT runs scored perturbations on a sample of the same "train" images the linear head was fit on — train_reward hit 0.999 (near-perfect, i.e. memorization), while the honest test_accuracy was only ~85%. Fixed by carving a stratified 600-image <code>train_holdout</code> (50/class) out of the official train split, disjoint from the ~2400 images the head is fit on, and re-fitting the head on the reduced set. All results below use the corrected, leak-free holdout.
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>2. Protocol</h2>
+  <div class="card">
+    <div class="phase-row"><div class="dot dot-done"></div><div class="phase-text"><strong>Phase 0 — Fit the head:</strong> Linear probe (backbone frozen), AdamW lr=1e-3, 10 epochs, on the ~2400-image reduced train split. Converges to 99.8% train accuracy — this becomes the "center" both RandOpt and FT start from, playing the same role Meta's released ImageNet-1k head plays elsewhere in this project.</div></div>
+    <div class="phase-row"><div class="dot dot-done"></div><div class="phase-text"><strong>Phase 1 — Base eval:</strong> The unmodified (backbone + fitted head) model, evaluated on <code>train_holdout</code> (scoring set) and <code>test</code> (eval set).</div></div>
+    <div class="phase-row"><div class="dot dot-done"></div><div class="phase-text"><strong>Phase 2a — RandOpt:</strong> N Gaussian perturbations (σ ∈ {2, 5, 10}×10⁻⁴) over the <em>entire</em> model (backbone + head), each scored by accuracy on the 600-image <code>train_holdout</code>; top-K=50 selected by score; majority-vote ensemble on the full 2563-image test split.</div></div>
+    <div class="phase-row"><div class="dot dot-done"></div><div class="phase-text"><strong>Phase 2b — Full FT:</strong> Same starting center, same <code>train_holdout</code> data budget (600 images), same full-model scope — but AdamW gradient descent (5 epochs) instead of perturb-and-select. The gradient-based counterpart to RandOpt, budget-matched for a fair comparison.</div></div>
+    <div class="phase-row"><div class="dot dot-done"></div><div class="phase-text"><strong>Phase 3 — Catastrophic-forgetting check:</strong> Take the exact backbone each method produced, swap the ExDark head back out for Meta's original frozen ImageNet-1k head (unperturbed, unmodified), and evaluate on 6 ImageNet-family targets. Noise is generated per-parameter from (seed, that parameter's shape) — identical regardless of which head is attached — so RandOpt's backbone-only replay reproduces the exact same weights its ExDark ensemble members had.</div></div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>3. ExDark Results — RandOpt vs Full FT</h2>
+
+  <div class="card-grid">
+    <div class="metric-card">
+      <div class="label">Base (fitted head, no adaptation)</div>
+      <div class="value">84.71%</div>
+      <div class="sub">test accuracy</div>
+    </div>
+    <div class="metric-card">
+      <div class="label">RandOpt · N=3000, K=50</div>
+      <div class="value teal">84.74%</div>
+      <div class="sub teal">+0.04pp vs base</div>
+    </div>
+    <div class="metric-card">
+      <div class="label">Full FT · lr=1e-5</div>
+      <div class="value green">87.75%</div>
+      <div class="sub green">+3.04pp vs base</div>
+    </div>
+  </div>
+
+  <div class="chart-container">
+    <div class="chart-title">ExDark test accuracy</div>
+    <div class="bar-chart">
+      <div class="bar-row">
+        <div class="bar-label">Base</div>
+        <div class="bar-track"><div class="bar-fill" style="width:84.71%;background:var(--muted)"></div></div>
+        <div class="bar-val">84.71%</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">RandOpt N=2000, K=50</div>
+        <div class="bar-track"><div class="bar-fill" style="width:84.74%;background:var(--accent2)"></div></div>
+        <div class="bar-val">84.74%</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">RandOpt N=3000, K=50</div>
+        <div class="bar-track"><div class="bar-fill" style="width:84.74%;background:var(--accent2)"></div></div>
+        <div class="bar-val">84.74%</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">Full FT (lr=1e-5)</div>
+        <div class="bar-track"><div class="bar-fill" style="width:87.75%;background:var(--green)"></div></div>
+        <div class="bar-val">87.75%</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout callout-info">
+    <strong>N=2000 → N=3000 changes nothing</strong>
+    RandOpt's ensemble accuracy is identical (84.74%) at both population sizes — the gain has already plateaued at N=2000. More perturbations don't find a better ensemble; this is a "needle, not thicket" regime for full-model perturbation on ExDark, consistent with the earlier ImageNet-C series' headline finding.
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>4. FT Learning-Rate Sensitivity</h2>
+  <div class="card">
+    <p>The default lr=1e-5 (carried over from the ImageNet-C series' FT baseline) turned out to already be the sweet spot for this budget — both higher values tried made things <em>worse</em>, not better, and one caused outright divergence.</p>
+  </div>
+  <div class="chart-container">
+    <div class="chart-title">ExDark test accuracy vs FT learning rate</div>
+    <div class="bar-chart">
+      <div class="bar-row">
+        <div class="bar-label">lr = 1e-5 (best)</div>
+        <div class="bar-track"><div class="bar-fill" style="width:87.75%;background:var(--green)"></div></div>
+        <div class="bar-val">87.75%</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">lr = 3e-5 (overfits)</div>
+        <div class="bar-track"><div class="bar-fill" style="width:79.20%;background:var(--orange)"></div></div>
+        <div class="bar-val">79.20%</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">lr = 1e-4 (diverges)</div>
+        <div class="bar-track"><div class="bar-fill" style="width:18.96%;background:var(--accent3)"></div></div>
+        <div class="bar-val">18.96%</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label" style="color:var(--muted)">Base (reference)</div>
+        <div class="bar-track"><div class="bar-fill" style="width:84.71%;background:var(--muted)"></div></div>
+        <div class="bar-val">84.71%</div>
+      </div>
+    </div>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden">
+  <table>
+    <thead><tr><th>LR</th><th>Train reward</th><th>Test accuracy</th><th>vs base</th><th>Weight displacement (Δw)</th><th>σ-equivalent</th></tr></thead>
+    <tbody>
+      <tr><td><code>1e-5</code></td><td>1.000</td><td class="best">87.75%</td><td class="best">+3.04pp</td><td>2.59</td><td>7.68e-05</td></tr>
+      <tr><td><code>3e-5</code></td><td>1.000</td><td class="bad">79.20%</td><td class="bad">−5.50pp</td><td>8.25</td><td>2.45e-04</td></tr>
+      <tr><td><code>1e-4</code></td><td>0.125</td><td class="bad">18.96%</td><td class="bad">−65.74pp</td><td>19.41</td><td>5.76e-04</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="callout callout-danger">
+    <strong>Higher LR ≠ better, even when train reward looks fine</strong>
+    Both 1e-5 and 3e-5 hit train_reward=1.000 (full memorization of the 600-image holdout) — but 3e-5's weight displacement is ~3× larger and generalizes markedly worse. Train accuracy alone can't distinguish "learned" from "overfit harder" at these small data budgets; test accuracy on the held-out split is the number that matters.
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>5. Catastrophic-Forgetting Check — 6 ImageNet-Family Datasets</h2>
+  <div class="card">
+    <p>Both the RandOpt ensemble and the FT'd model adapt the <em>entire</em> backbone to ExDark. Does that damage the backbone's original ImageNet-1k ability? Each adapted backbone is evaluated with Meta's original, untouched pretrained head swapped back in — never the ExDark head — on <code>imagenet</code>, <code>imagenet_c</code>, <code>imagenet_a</code>, <code>imagenet_r</code>, <code>imagenet_sketch</code>, and <code>imagenet_es</code> (1000-image class-balanced draw per target).</p>
+  </div>
+  <div class="card" style="padding:0;overflow:hidden">
+  <table>
+    <thead><tr><th>Dataset</th><th>Base</th><th>RandOpt (K=50)</th><th>Δ RandOpt</th><th>Full FT</th><th>Δ FT</th></tr></thead>
+    <tbody>
+      <tr><td>imagenet</td><td>89.10%</td><td>89.00%</td><td class="neutral">−0.10pp</td><td>88.90%</td><td class="neutral">−0.20pp</td></tr>
+      <tr><td>imagenet_c</td><td>84.70%</td><td>84.70%</td><td class="neutral">0.00pp</td><td>84.20%</td><td class="neutral">−0.50pp</td></tr>
+      <tr><td>imagenet_a</td><td>75.94%</td><td>76.18%</td><td class="best">+0.25pp</td><td>77.06%</td><td class="best">+1.12pp</td></tr>
+      <tr><td>imagenet_r</td><td>80.60%</td><td>80.90%</td><td class="best">+0.30pp</td><td>80.80%</td><td class="neutral">+0.20pp</td></tr>
+      <tr><td>imagenet_sketch</td><td>65.80%</td><td>66.00%</td><td class="neutral">+0.20pp</td><td>64.20%</td><td class="bad">−1.60pp</td></tr>
+      <tr><td>imagenet_es</td><td>80.10%</td><td>79.90%</td><td class="neutral">−0.20pp</td><td><strong>72.00%</strong></td><td class="bad" style="font-weight:700">−8.10pp</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="finding">
+    <div class="num">±0.3pp</div>
+    <h4>RandOpt: essentially a no-op on ImageNet-family, everywhere</h4>
+    <p>Max deviation across all 6 targets is ±0.3pp — the same small-σ perturbations that barely move ExDark accuracy also barely touch general ImageNet ability. Safe, but the ExDark gain (+0.04pp) is negligible too — RandOpt isn't finding anything at this budget.</p>
+  </div>
+  <div class="finding" style="border-color:var(--accent3)">
+    <div class="num" style="color:var(--accent3)">−8.1pp</div>
+    <h4>Full FT: a real ExDark win, at a real (concentrated) cost</h4>
+    <p>Five of six targets barely move — some even improve slightly (imagenet_a +1.12pp). But imagenet_es drops 8.1pp, a clear, non-uniform forgetting effect concentrated on one distribution shift, not spread evenly across all six.</p>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>6. Key Findings</h2>
+  <div class="card">
+    <ul style="padding-left:1.4rem;line-height:2">
+      <li><strong>The train/test leak mattered.</strong> Scoring on data the head had memorized inflated train_reward to 0.999 and made the setup look healthier than it was — always sanity-check train reward against test accuracy for exactly this gap.</li>
+      <li><strong>For ExDark specifically, full FT beats RandOpt</strong> — +3.04pp vs +0.04pp, the opposite of the earlier ImageNet-C series where small-budget FT damaged accuracy and RandOpt was the safer choice. Not a universal rule; dataset-dependent.</li>
+      <li><strong>RandOpt's population size doesn't matter here</strong> — N=2000 and N=3000 give identical ensemble accuracy (84.74%). The needle isn't in a bigger haystack.</li>
+      <li><strong>FT's learning rate is a cliff, not a slope</strong> — 1e-5 works, 3e-5 already overfits into a net loss, 1e-4 diverges outright. Train-set memorization (reward=1.0) does not imply the LR was reasonable.</li>
+      <li><strong>Forgetting, when it happens, is concentrated, not diffuse</strong> — FT's ImageNet-family damage is almost entirely on imagenet_es (−8.1pp); the other 5 targets are within ±1.6pp.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>7. Run Reference</h2>
+  <div class="card" style="padding:0;overflow:hidden">
+  <table>
+    <thead><tr><th>W&amp;B Run Name</th><th>Status</th><th>Method</th><th>Budget</th><th>Node / GPU</th></tr></thead>
+    <tbody>
+      <tr><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/g3xwfvst">randopt-ssl-self-exdark-N2000-K50-holdout</a></td><td class="green">✓ Finished</td><td>RandOpt</td><td>N=2000, K=50</td><td>gpu55 (8×A6000)</td></tr>
+      <tr><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/4ps3a69o">randopt-ssl-self-exdark-N3000-K50</a></td><td class="green">✓ Finished</td><td>RandOpt</td><td>N=3000, K=50</td><td>gpu55 (8×A6000)</td></tr>
+      <tr><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/lwodipii">ft-self-exdark-all (lr=1e-5)</a></td><td class="green">✓ Finished</td><td>Full FT</td><td>600 imgs, 5 epochs</td><td>gpu55 (1×A6000)</td></tr>
+      <tr><td>ft-self-exdark-all-lr3e5</td><td class="orange">✓ Finished (overfit)</td><td>Full FT</td><td>600 imgs, 5 epochs</td><td>gpu55 (1×A6000)</td></tr>
+      <tr><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/wz8cj3kl">ft-self-exdark-all-lr1e4</a></td><td class="red">✓ Finished (diverged)</td><td>Full FT</td><td>600 imgs, 5 epochs</td><td>gpu55 (1×A6000)</td></tr>
+      <tr><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/7f62ysn8">imagenet-forget-base-6ds</a></td><td class="green">✓ Finished</td><td>Base reference</td><td>1000/target × 6</td><td>gpu55 (1×A6000)</td></tr>
+      <tr><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/l6787qb2">imagenet-forget-ft-6ds</a></td><td class="green">✓ Finished</td><td>FT cross-eval</td><td>1000/target × 6</td><td>gpu55 (1×A6000)</td></tr>
+      <tr><td><a href="https://wandb.ai/noyhassid-tau/randopt/runs/1anb3gz0">imagenet-forget-randopt-6ds</a></td><td class="green">✓ Finished</td><td>RandOpt cross-eval</td><td>1000/target × 6, K=50</td><td>gpu55 (8×A6000)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="muted" style="margin-top:.5rem;font-size:.8rem">global_seed=42 · sigma_values=0.0002,0.0005,0.001 · perturb_target=all · Project: noyhassid-tau/randopt.</p>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section>
+  <h2>8. DINOv3 Experiments</h2>
+  <div class="card">
+    <p>A separate model track from the ExDark work above (sections 1&ndash;7, DINOv2 ViT-g/14) &mdash; DINOv3 ViT-7B/16, evaluated on the existing ImageNet-family shift suite rather than ExDark's own splits.</p>
+  </div>
+
+  <h3>Multi-Step Perturbation — ImageNet-C</h3>
+  <div class="card">
+    <p>Does <strong>chaining</strong> multiple perturbation steps (apply P seeds in sequence, score only the final state, then unwind in reverse) help RandOpt reach further from the pretrained center than a single step can? Tested on <code>imagenet_c</code> with a P=3 chain. This run doubled as the real-world verification for a host-RAM fix to <code>store_base_weights</code>/<code>reset_to_base_weights</code> that had caused two prior OOM kills on shared GPU servers.</p>
+    <div class="callout callout-success">
+      <strong>RAM fix confirmed working</strong>
+      Ran clean start-to-finish on 2 engines (gpu55, GPUs 3+4 pinned) — zero OOM, zero errors, host RAM back to 162/220GB available after exit. Full 5-engine relaunch of the original P=2&rarr;3&rarr;5, all-6-dataset sweep is now unblocked.
+    </div>
+  </div>
+
+  <div class="card-grid">
+    <div class="metric-card">
+      <div class="label">Base (unmodified)</div>
+      <div class="value">85.3%</div>
+      <div class="sub">imagenet_c test accuracy</div>
+    </div>
+    <div class="metric-card">
+      <div class="label">RandOpt &middot; P=1 (single-step)</div>
+      <div class="value">85.0%</div>
+      <div class="sub">&minus;0.1pp vs base</div>
+    </div>
+    <div class="metric-card">
+      <div class="label">RandOpt &middot; P=3 chain (this run)</div>
+      <div class="value teal">85.3%</div>
+      <div class="sub teal">+0.0pp vs base</div>
+    </div>
+    <div class="metric-card">
+      <div class="label">Full FT &middot; all params (lr=1e-5)</div>
+      <div class="value green">85.7%</div>
+      <div class="sub green">+0.6pp vs base</div>
+    </div>
+  </div>
+
+  <div class="chart-container">
+    <div class="chart-title">imagenet_c test accuracy — RandOpt chaining vs FT</div>
+    <div class="bar-chart">
+      <div class="bar-row">
+        <div class="bar-label">Base</div>
+        <div class="bar-track"><div class="bar-fill" style="width:85.3%;background:var(--muted)"></div></div>
+        <div class="bar-val">85.3%</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">RandOpt P=1</div>
+        <div class="bar-track"><div class="bar-fill" style="width:85.0%;background:var(--muted)"></div></div>
+        <div class="bar-val">85.0%</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">RandOpt P=3</div>
+        <div class="bar-track"><div class="bar-fill" style="width:85.3%;background:var(--accent2)"></div></div>
+        <div class="bar-val">85.3%</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">FT last_n_blocks=5</div>
+        <div class="bar-track"><div class="bar-fill" style="width:85.2%;background:var(--accent4)"></div></div>
+        <div class="bar-val">85.2%</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">FT all (lr=1e-5)</div>
+        <div class="bar-track"><div class="bar-fill" style="width:85.7%;background:var(--green)"></div></div>
+        <div class="bar-val">85.7%</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">FT all (lr=1e-4, overfits)</div>
+        <div class="bar-track"><div class="bar-fill" style="width:83.8%;background:var(--accent3)"></div></div>
+        <div class="bar-val">83.8%</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+  <table>
+    <thead><tr><th>Method</th><th>imagenet_c accuracy</th><th>vs base</th><th>Params updated</th></tr></thead>
+    <tbody>
+      <tr><td>Base (unmodified)</td><td>85.3%</td><td class="neutral">&mdash;</td><td>&mdash;</td></tr>
+      <tr><td>RandOpt, single-step (P=1, N=2000/K=50)</td><td>85.0%</td><td class="bad">&minus;0.1pp</td><td>full model, perturbed</td></tr>
+      <tr><td><strong>RandOpt, P=3 chain (N=2000/K=50)</strong></td><td><strong>85.3%</strong></td><td class="neutral"><strong>+0.0pp</strong></td><td>full model, perturbed</td></tr>
+      <tr><td>FT, <code>last_n_blocks=5</code> (839M params)</td><td>85.2%</td><td class="neutral">+0.1pp</td><td>839M (gradient)</td></tr>
+      <tr><td>FT, <code>all</code> (6.72B params, lr=1e-5)</td><td class="best">85.7%</td><td class="best">+0.6pp</td><td>6.72B (gradient)</td></tr>
+      <tr><td>FT, <code>all</code> (lr=1e-4, 10&times; higher)</td><td class="bad">83.8%</td><td class="bad">&minus;1.3pp (overfits)</td><td>6.72B (gradient)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="muted" style="margin-top:.5rem;font-size:.8rem">Model: DINOv3 ViT-7B/16 &middot; global_seed=42 &middot; sigma_values=0.0002,0.0005,0.001 &middot; perturb_target=all &middot; train/test_samples=1000. FT rows from the earlier all-6-dataset comparison (base 85.1% there vs 85.3% here &mdash; different sample draw, same order of magnitude). W&amp;B run: <a href="https://wandb.ai/noyhassid-tau/randopt/runs/m9be6dpe">dinov3-imagenet_c-N2000-K50-P3-2eng-tr1k-te1k</a> (gpu55, 2×A6000, GPU 3+4).</p>
+
+  <div class="finding">
+    <div class="num">+0.0pp</div>
+    <h4>Chaining doesn't close the gap with FT</h4>
+    <p>The multi-step feature was built on the hypothesis that a single perturbation step wasn't moving DINOv3 far enough from its pretrained center to reach an informative region — chaining P steps at the same &sigma; was meant to reach further without needing a riskier, larger &sigma;. This P=3 run is just as flat as the original P=1 result (+0.0 vs &minus;0.1pp, both within noise), while even the mildest FT setting still finds a small but real +0.1 to +0.6pp gain. Gradient descent keeps finding small genuine improvements that pure random search &mdash; chained or not &mdash; doesn't, at this budget.</p>
+  </div>
+  <div class="callout callout-warning">
+    <strong>One data point, one dataset</strong>
+    This run covered <code>imagenet_c</code> only, at N=2000, P=3. It doesn't rule out P=5 or a different dataset telling a different story &mdash; it just doesn't support the chaining hypothesis yet. With the RAM fix confirmed, the full P=2&rarr;3&rarr;5, all-6-dataset sweep can now run for a complete picture.
+  </div>
+
+  <h3>ExDark on DINOv3 — RandOpt vs Full FT</h3>
+  <div class="card">
+    <p>ExDark so far had only run on DINOv2 (sections 1&ndash;6 above). Same 12-class ExDark head-fitting protocol, ported to DINOv3, then run as two experiments: <strong>(1)</strong> adapt on clean ImageNet (both FT and RandOpt), check transfer to ExDark; <strong>(2)</strong> adapt on ExDark's own split (both methods), check transfer to the 6 ImageNet-family datasets. Both methods: FT lr=1e-5/all-layers, RandOpt N=2000/K=50.</p>
+    <div class="callout callout-info">
+      <strong>Fresh ExDark head fit for DINOv3</strong>
+      DINOv2 and DINOv3 have different embedding dimensions, so the DINOv2 series' head can't be reused &mdash; a new one was fit the same way (backbone frozen, AdamW lr=1e-3, 10 epochs, on the same 2400-image reduced train split): train_acc=99.71%, held-out test_acc=85.21% &mdash; a healthy train/test gap for a linear probe on strong frozen features, not memorization, and close to the DINOv2 head's own 99.8%/84.71%.
+    </div>
+  </div>
+
+  <div class="card-grid">
+    <div class="metric-card">
+      <div class="label">Base (fresh DINOv3 head)</div>
+      <div class="value">85.21%</div>
+      <div class="sub">ExDark test accuracy</div>
+    </div>
+    <div class="metric-card">
+      <div class="label">Exp 1 &middot; RandOpt (ImageNet&rarr;ExDark)</div>
+      <div class="value">85.21%</div>
+      <div class="sub">+0.00pp vs base</div>
+    </div>
+    <div class="metric-card">
+      <div class="label">Exp 1 &middot; FT (ImageNet&rarr;ExDark)</div>
+      <div class="value bad">85.06%</div>
+      <div class="sub bad">&minus;0.16pp vs base</div>
+    </div>
+    <div class="metric-card">
+      <div class="label">Exp 2 &middot; FT (ExDark&rarr;ExDark)</div>
+      <div class="value green">85.68%</div>
+      <div class="sub green">+0.47pp vs base</div>
+    </div>
+  </div>
+
+  <div class="chart-container">
+    <div class="chart-title">ExDark test accuracy — DINOv3, both experiments</div>
+    <div class="bar-chart">
+      <div class="bar-row">
+        <div class="bar-label">Base</div>
+        <div class="bar-track"><div class="bar-fill" style="width:85.21%;background:var(--muted)"></div></div>
+        <div class="bar-val">85.21%</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">Exp1 RandOpt (ImageNet-trained)</div>
+        <div class="bar-track"><div class="bar-fill" style="width:85.21%;background:var(--muted)"></div></div>
+        <div class="bar-val">85.21%</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">Exp1 FT (ImageNet-trained)</div>
+        <div class="bar-track"><div class="bar-fill" style="width:85.06%;background:var(--accent3)"></div></div>
+        <div class="bar-val">85.06%</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label">Exp2 FT (ExDark-trained)</div>
+        <div class="bar-track"><div class="bar-fill" style="width:85.68%;background:var(--green)"></div></div>
+        <div class="bar-val">85.68%</div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label" style="color:var(--muted)">Exp2 RandOpt (ExDark-trained)</div>
+        <div class="bar-track"><div class="bar-fill" style="width:2%;background:var(--line-soft, #252838)"></div></div>
+        <div class="bar-val" style="color:var(--muted)">running&hellip;</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+  <table>
+    <thead><tr><th>Experiment</th><th>Method</th><th>ExDark accuracy</th><th>vs base</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td rowspan="2">Exp 1: train ImageNet &rarr; eval ExDark</td><td>RandOpt N=2000/K=50</td><td>85.21%</td><td class="neutral">+0.00pp</td><td class="green">&#10003; done</td></tr>
+      <tr><td>FT all-layers, lr=1e-5</td><td>85.06%</td><td class="bad">&minus;0.16pp</td><td class="green">&#10003; done</td></tr>
+      <tr><td rowspan="2">Exp 2: train ExDark &rarr; eval ExDark + 6 ImageNet datasets</td><td>RandOpt N=2000/K=50</td><td>&mdash;</td><td class="neutral">&mdash;</td><td class="orange">&#8635; running</td></tr>
+      <tr><td>FT all-layers, lr=1e-5</td><td>85.68%</td><td class="best">+0.47pp</td><td class="green">&#10003; done</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden;margin-top:1rem">
+  <table>
+    <thead><tr><th colspan="7" style="text-align:left;padding-bottom:0">Exp 2 forgetting-check &mdash; ExDark-FT backbone vs original ImageNet head</th></tr>
+    <tr><th>Dataset</th><th>Base</th><th>FT-backbone</th><th>&Delta;</th><th></th><th></th><th></th></tr></thead>
+    <tbody>
+      <tr><td>imagenet</td><td>89.10%</td><td>89.10%</td><td class="neutral">+0.00pp</td><td></td><td></td><td></td></tr>
+      <tr><td>imagenet_c</td><td>85.30%</td><td>85.50%</td><td class="best">+0.20pp</td><td></td><td></td><td></td></tr>
+      <tr><td>imagenet_a</td><td>80.80%</td><td>80.55%</td><td class="bad">&minus;0.25pp</td><td></td><td></td><td></td></tr>
+      <tr><td>imagenet_r</td><td>89.40%</td><td>89.60%</td><td class="best">+0.20pp</td><td></td><td></td><td></td></tr>
+      <tr><td>imagenet_sketch</td><td>69.40%</td><td>69.40%</td><td class="neutral">+0.00pp</td><td></td><td></td><td></td></tr>
+      <tr><td>imagenet_es</td><td>83.70%</td><td>83.90%</td><td class="best">+0.20pp</td><td></td><td></td><td></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="muted" style="margin-top:.5rem;font-size:.8rem">Exp 2's RandOpt forgetting-check (same 6 datasets) is blocked on the RandOpt run above finishing. global_seed=42 &middot; sigma_values=0.0002,0.0005,0.001 &middot; perturb_target=all. W&amp;B: <a href="https://wandb.ai/noyhassid-tau/randopt/runs/j9vxaqep">exdark-forget-check-randopt-imagenet-trained</a>, <a href="https://wandb.ai/noyhassid-tau/randopt/runs/vlm3ibxl">exdark-forget-check-ft-imagenet-trained</a>, <a href="https://wandb.ai/noyhassid-tau/randopt/runs/4teqouxm">dinov3-exdark-ft-all-layers</a>, <a href="https://wandb.ai/noyhassid-tau/randopt/runs/b7zehfh4">dinov3-exdark-ft-forget-check-6ds</a>.</p>
+
+  <div class="finding">
+    <div class="num">±0.25pp</div>
+    <h4>DINOv3's FT forgetting footprint is far milder than DINOv2's</h4>
+    <p>The DINOv2 ExDark series (section 5 above) found FT damaged imagenet_es by <strong>&minus;8.1pp</strong> &mdash; a real, concentrated cost for its +3.04pp ExDark gain. DINOv3's equivalent FT run gains less on ExDark (+0.47pp) but also damages far less: max deviation across all 6 ImageNet-family datasets is just &plusmn;0.25pp, nothing close to a concentrated casualty like DINOv2's imagenet_es hit.</p>
+  </div>
+  <div class="callout callout-warning">
+    <strong>Exp 2's RandOpt half still running</strong>
+    N=2000/K=50 on ExDark's own split, 7 engines, launched 2026-08-17 &mdash; this section will be updated once it (and its forgetting-check) complete.
+  </div>
+</section>
+
+</div><!-- /container -->
+
+<div style="background:#0a0c14;border-top:1px solid #1e2134;padding:1.5rem;text-align:center;color:#8892a4;font-size:.8rem">
+  RandOpt / Neural Thickets — arXiv 2603.12228 &nbsp;|&nbsp; Report generated 2026-08-05 &nbsp;|&nbsp; noyhassid-tau/randopt
+</div>
+
+</body>
+</html>
