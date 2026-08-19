@@ -454,6 +454,11 @@
       <div class="value green">85.68%</div>
       <div class="sub green">+0.47pp vs base</div>
     </div>
+    <div class="metric-card">
+      <div class="label">Exp 2 &middot; RandOpt (ExDark&rarr;ExDark)</div>
+      <div class="value">85.17%</div>
+      <div class="sub">&minus;0.04pp vs base</div>
+    </div>
   </div>
 
   <div class="chart-container">
@@ -480,9 +485,9 @@
         <div class="bar-val">85.68%</div>
       </div>
       <div class="bar-row">
-        <div class="bar-label" style="color:var(--muted)">Exp2 RandOpt (ExDark-trained)</div>
-        <div class="bar-track"><div class="bar-fill" style="width:2%;background:var(--line-soft, #252838)"></div></div>
-        <div class="bar-val" style="color:var(--muted)">running&hellip;</div>
+        <div class="bar-label">Exp2 RandOpt (ExDark-trained)</div>
+        <div class="bar-track"><div class="bar-fill" style="width:85.17%;background:var(--muted)"></div></div>
+        <div class="bar-val">85.17%</div>
       </div>
     </div>
   </div>
@@ -493,7 +498,7 @@
     <tbody>
       <tr><td rowspan="2">Exp 1: train ImageNet &rarr; eval ExDark</td><td>RandOpt N=2000/K=50</td><td>85.21%</td><td class="neutral">+0.00pp</td><td class="green">&#10003; done</td></tr>
       <tr><td>FT all-layers, lr=1e-5</td><td>85.06%</td><td class="bad">&minus;0.16pp</td><td class="green">&#10003; done</td></tr>
-      <tr><td rowspan="2">Exp 2: train ExDark &rarr; eval ExDark + 6 ImageNet datasets</td><td>RandOpt N=2000/K=50</td><td>&mdash;</td><td class="neutral">&mdash;</td><td class="orange">&#8635; running</td></tr>
+      <tr><td rowspan="2">Exp 2: train ExDark &rarr; eval ExDark + 6 ImageNet datasets</td><td>RandOpt N=2000/K=50</td><td>85.17%</td><td class="neutral">&minus;0.04pp</td><td class="green">&#10003; done</td></tr>
       <tr><td>FT all-layers, lr=1e-5</td><td>85.68%</td><td class="best">+0.47pp</td><td class="green">&#10003; done</td></tr>
     </tbody>
   </table>
@@ -513,16 +518,31 @@
     </tbody>
   </table>
   </div>
-  <p class="muted" style="margin-top:.5rem;font-size:.8rem">Exp 2's RandOpt forgetting-check (same 6 datasets) is blocked on the RandOpt run above finishing. global_seed=42 &middot; sigma_values=0.0002,0.0005,0.001 &middot; perturb_target=all. W&amp;B: <a href="https://wandb.ai/noyhassid-tau/randopt/runs/j9vxaqep">exdark-forget-check-randopt-imagenet-trained</a>, <a href="https://wandb.ai/noyhassid-tau/randopt/runs/vlm3ibxl">exdark-forget-check-ft-imagenet-trained</a>, <a href="https://wandb.ai/noyhassid-tau/randopt/runs/4teqouxm">dinov3-exdark-ft-all-layers</a>, <a href="https://wandb.ai/noyhassid-tau/randopt/runs/b7zehfh4">dinov3-exdark-ft-forget-check-6ds</a>.</p>
+  <div class="card" style="padding:0;overflow:hidden;margin-top:1rem">
+  <table>
+    <thead><tr><th colspan="7" style="text-align:left;padding-bottom:0">Exp 2 forgetting-check &mdash; ExDark-RandOpt backbone vs original ImageNet head</th></tr>
+    <tr><th>Dataset</th><th>Base</th><th>RandOpt-backbone</th><th>&Delta;</th><th></th><th></th><th></th></tr></thead>
+    <tbody>
+      <tr><td>imagenet</td><td>89.10%</td><td>89.00%</td><td class="neutral">&minus;0.10pp</td><td></td><td></td><td></td></tr>
+      <tr><td>imagenet_c</td><td>85.30%</td><td>85.20%</td><td class="neutral">&minus;0.10pp</td><td></td><td></td><td></td></tr>
+      <tr><td>imagenet_a</td><td>80.80%</td><td>80.80%</td><td class="neutral">+0.00pp</td><td></td><td></td><td></td></tr>
+      <tr><td>imagenet_r</td><td>89.40%</td><td>89.30%</td><td class="neutral">&minus;0.10pp</td><td></td><td></td><td></td></tr>
+      <tr><td>imagenet_sketch</td><td>69.40%</td><td>69.60%</td><td class="neutral">+0.20pp</td><td></td><td></td><td></td></tr>
+      <tr><td>imagenet_es</td><td>83.70%</td><td>84.00%</td><td class="neutral">+0.30pp</td><td></td><td></td><td></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="muted" style="margin-top:.5rem;font-size:.8rem">global_seed=42 &middot; sigma_values=0.0002,0.0005,0.001 &middot; perturb_target=all. W&amp;B: <a href="https://wandb.ai/noyhassid-tau/randopt/runs/j9vxaqep">exdark-forget-check-randopt-imagenet-trained</a>, <a href="https://wandb.ai/noyhassid-tau/randopt/runs/vlm3ibxl">exdark-forget-check-ft-imagenet-trained</a>, <a href="https://wandb.ai/noyhassid-tau/randopt/runs/fswf6nip">dinov3-exdark-N2000-K50-7eng</a>, <a href="https://wandb.ai/noyhassid-tau/randopt/runs/4teqouxm">dinov3-exdark-ft-all-layers</a>, <a href="https://wandb.ai/noyhassid-tau/randopt/runs/b7zehfh4">dinov3-exdark-ft-forget-check-6ds</a>, <a href="https://wandb.ai/noyhassid-tau/randopt/runs/al3beyta">dinov3-exdark-randopt-forget-check-6ds</a>.</p>
 
   <div class="finding">
     <div class="num">±0.25pp</div>
     <h4>DINOv3's FT forgetting footprint is far milder than DINOv2's</h4>
     <p>The DINOv2 ExDark series (section 5 above) found FT damaged imagenet_es by <strong>&minus;8.1pp</strong> &mdash; a real, concentrated cost for its +3.04pp ExDark gain. DINOv3's equivalent FT run gains less on ExDark (+0.47pp) but also damages far less: max deviation across all 6 ImageNet-family datasets is just &plusmn;0.25pp, nothing close to a concentrated casualty like DINOv2's imagenet_es hit.</p>
   </div>
-  <div class="callout callout-warning">
-    <strong>Exp 2's RandOpt half still running</strong>
-    N=2000/K=50 on ExDark's own split, 7 engines, launched 2026-08-17 &mdash; this section will be updated once it (and its forgetting-check) complete.
+  <div class="finding">
+    <div class="num">±0.30pp</div>
+    <h4>RandOpt is flat everywhere it was tested, in both directions</h4>
+    <p>Across all 8 runs &mdash; both training directions (ImageNet&rarr;ExDark and ExDark&rarr;ImageNet-family) and both primary-task and forgetting-check numbers &mdash; RandOpt never exceeds &plusmn;0.30pp. FT's outcome depends on which way the adaptation runs (a real gain in-domain, small damage out-of-domain); RandOpt shows no such direction-dependence because it never computes a direction informed by the data in the first place.</p>
   </div>
 </section>
 

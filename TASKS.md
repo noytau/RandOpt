@@ -492,7 +492,7 @@ FT-vs-RandOpt comparison on DINOv3, as two experiments: (1) adapt on clean
 ImageNet, check transfer/damage on ExDark; (2) adapt on ExDark itself, check
 transfer/damage on the 6 ImageNet-family datasets (mirrors the DINOv2
 ExDark series' own forgetting check). Both: FT lr=1e-5/all-layers, RandOpt
-N=2000/K=50. **Prep done, nothing launched yet.**
+N=2000/K=50. **All 8 runs complete as of 2026-08-19.**
 
 - [x] Tested the DINOv3+ExDark combination for the first time (toy scale,
       2 engines, 24 samples): `fit_head.py`, `randopt_selfcontained.py`
@@ -524,7 +524,7 @@ N=2000/K=50. **Prep done, nothing launched yet.**
       freshly-fit ExDark head instead of the reverse. `--mode base/randopt/
       ft`, reuses `run_ensemble_multi` and the `perturb_target="backbone"`
       replay mechanism already proven for the ExDark→ImageNet direction.
-**Results (2026-08-16/17, gpu56).** All steps below run
+**Results (2026-08-16 to 08-19, gpu56).** All steps below run
 `--backbone_family dinov3`, ExDark head = `checkpoints/exdark_head.pth`
 (fit fresh: 2400 train images, lr=1e-3, 10 epochs, train_acc=0.9971,
 held-out test_acc=0.8521 — healthy gap, not memorization, on par with the
@@ -534,17 +534,21 @@ DINOv2 series' equivalent 0.998 train / 0.8471 test).
 |---|---|---|
 | Exp 1, RandOpt (reused `dinov3-all6-N2000-K50-tr1k-te1k`, no rerun needed — RandOpt's adapted state is fully reconstructible from its saved `(seed,σ)` list, unlike FT's actual trained weights) | ImageNet-trained RandOpt backbone → ExDark | 85.21% vs 85.21% base — **flat, +0.00pp** |
 | Exp 1, FT (`ft_matched_baseline.py --ft_scope all --lr 1e-5`, rerun to capture `--backbone_out`) | ImageNet-trained FT backbone → ExDark | 85.06% vs 85.21% base — **−0.16pp** (small damage, out-of-distribution) |
-| Exp 2, RandOpt (`randopt_selfcontained.py --dataset exdark`, N=2000/K=50, 7 engines) | — | **running**, wandb `dinov3-exdark-N2000-K50-7eng`, ETA ~13-15h from 2026-08-17 07:44 launch |
+| Exp 2, RandOpt (`randopt_selfcontained.py --dataset exdark`, N=2000/K=50, 7 engines) | ExDark-trained RandOpt | 85.17% vs 85.21% base — **−0.04pp** (flat). wandb `dinov3-exdark-N2000-K50-7eng`, results `results/randopt-ssl-dinov3-self-exdark-N2000/results.json` |
 | Exp 2, FT (`ft_selfcontained.py --dataset exdark --ft_scope all --lr 1e-5`) | ExDark-trained FT | 85.68% vs 85.21% base — **+0.47pp** (real gain) |
-| Exp 2, RandOpt forgetting-check (6 ImageNet datasets) | — | blocked on Exp 2 RandOpt above |
+| Exp 2, RandOpt forgetting-check (6 ImageNet datasets) | ExDark-RandOpt backbone vs original ImageNet head | max deviation **±0.30pp** — imagenet −0.1, imagenet_c −0.1, imagenet_a +0.0, imagenet_r −0.1, sketch +0.2, es +0.3. Flat, same pattern as every other RandOpt result on DINOv3 |
 | Exp 2, FT forgetting-check (6 ImageNet datasets) | ExDark-FT backbone vs original ImageNet head | max deviation **±0.25pp** across all 6 — imagenet +0.0, imagenet_c +0.2, imagenet_a −0.25, imagenet_r +0.2, sketch +0.0, es +0.2. Much milder than the DINOv2 ExDark series' own forgetting check (which found −8.1pp on imagenet_es) |
 
-Pattern so far: RandOpt stays exactly flat in both directions on DINOv3;
-FT finds a real gain when trained on ExDark itself (+0.47pp) but shows
-mild damage when trained on a different domain and evaluated on ExDark
-(−0.16pp) — and its forgetting footprint on DINOv3 (±0.25pp max) is much
-smaller than the equivalent DINOv2 result. Remaining: Exp 2's RandOpt run
-and its downstream forgetting-check.
+**Final pattern, all 8 runs complete:** RandOpt stays essentially flat on
+DINOv3 everywhere it was tested — both training directions (ImageNet→ExDark,
+ExDark→ImageNet-family) and both primary-task and forgetting-check numbers
+never exceed ±0.30pp. FT finds a real gain when trained on ExDark itself
+(+0.47pp) but shows small damage when trained on a different domain and
+evaluated cold on ExDark (−0.16pp) — direction matters for FT, not for
+RandOpt. FT's forgetting footprint on DINOv3 (±0.25pp max) is far smaller
+than the equivalent DINOv2 result (−8.1pp concentrated on imagenet_es) —
+whatever made DINOv2's FT damage concentrated and severe on that one
+dataset doesn't reproduce at DINOv3's scale, at least at this lr/budget.
 
 ## Open tasks
 
